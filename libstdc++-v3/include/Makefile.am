@@ -665,6 +665,7 @@ experimental_headers = \
 	${experimental_srcdir}/array \
 	${experimental_srcdir}/chrono \
 	${experimental_srcdir}/deque \
+	${experimental_srcdir}/executor \
 	${experimental_srcdir}/forward_list \
 	${experimental_srcdir}/functional \
 	${experimental_srcdir}/iterator \
@@ -672,6 +673,8 @@ experimental_headers = \
 	${experimental_srcdir}/map \
 	${experimental_srcdir}/memory \
 	${experimental_srcdir}/memory_resource \
+	${experimental_srcdir}/netfwd \
+	${experimental_srcdir}/networking \
 	${experimental_srcdir}/numeric \
 	${experimental_srcdir}/optional \
 	${experimental_srcdir}/propagate_const \

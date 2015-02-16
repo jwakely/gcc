@@ -1,0 +1,526 @@
+// <experimental/executor> -*- C++ -*-
+
+// Copyright (C) 2015 Free Software Foundation, Inc.
+//
+// This file is part of the GNU ISO C++ Library.  This library is free
+// software; you can redistribute it and/or modify it under the
+// terms of the GNU General Public License as published by the
+// Free Software Foundation; either version 3, or (at your option)
+// any later version.
+
+// This library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// Under Section 7 of GPL version 3, you are granted additional
+// permissions described in the GCC Runtime Library Exception, version
+// 3.1, as published by the Free Software Foundation.
+
+// You should have received a copy of the GNU General Public License and
+// a copy of the GCC Runtime Library Exception along with this program;
+// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+// <http://www.gnu.org/licenses/>.
+
+/** @file experimental/executor
+ *  This is a TS C++ Library header.
+ */
+
+#ifndef _GLIBCXX_EXPERIMENTAL_EXECUTOR
+#define _GLIBCXX_EXPERIMENTAL_EXECUTOR 1
+
+#pragma GCC system_header
+
+#if __cplusplus < 201402L
+# include <bits/c++14_warning.h>
+#else
+
+#include <chrono>
+
+namespace std _GLIBCXX_VISIBILITY(default)
+{
+namespace experimental
+{
+inline namespace network_v1
+{
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
+  /**
+   * @ingroup networking
+   * @{
+   */
+
+  template<typename _CompletionToken, typename _Signature, typename = void>
+    struct handler_type;
+
+  template<typename _CompletionToken, typename _Signature>
+    using handler_type_t =
+      typename handler_type<_CompletionToken, _Signature>::type;
+
+  template<typename _CompletionToken, typename _Signature, typename = void>
+    struct handler_type
+    {
+      using type = conditional_t< is_same<_CompletionToken,
+					  decay_t<_CompletionToken>>::value,
+				  _CompletionToken,
+				  handler_type_t<decay_t<_CompletionToken>>>;
+    };
+
+  template<typename _Handler>
+    class async_result
+    {
+    public:
+      typedef void type;
+
+      explicit async_result(_Handler&) { }
+      async_result(const async_result&) = delete;
+      async_result& operator=(const async_result&) = delete;
+
+      type get() { }
+    };
+
+  template<typename _CompletionToken, class _Signature>
+    struct async_completion
+    {
+      typedef handler_type_t<_CompletionToken, _Signature> handler_type;
+
+    private:
+      using __same = is_same<_CompletionToken, handler_type>;
+
+      static remove_reference_t<_CompletionToken>&
+      _S_get(remove_reference_t<_CompletionToken>& __t, true_type)
+      { return __t; }
+
+      static auto
+      _S_get(remove_reference_t<_CompletionToken>& __t, false_type)
+      { return std::forward<_CompletionToken>(__t); }
+
+    public:
+      // XXX is remove_reference_t necessary here?
+      explicit
+      async_completion(remove_reference_t<_CompletionToken>& __t)
+      : handler(_S_get(t)), result(handler)
+      { }
+
+      async_completion(const async_completion&) = delete;
+      async_completion& operator=(const async_completion&) = delete;
+
+      conditional_t<__same::value, handler_type&, handler_type>	handler;
+      async_result<handler_type>				result;
+    };
+
+  template<typename _Tp, typename _Alloc, typename = __void_t<>>
+    struct __associated_allocator_impl
+    {
+      using type = _Alloc;
+
+      static type
+      _S_get(const _Tp&, const _Alloc& __a) noexcept { return __a; }
+    };
+
+  template<typename _Tp, typename _Alloc>
+    struct __associated_allocator_impl<_Tp, _Alloc,
+				       __void_t<typename _Tp::allocator_type>
+    {
+      using type = typename _Tp::allocator_type;
+
+      static type
+      _S_get(const _Tp& __t, const _Alloc&) noexcept
+      { return __t.get_allocator(); }
+    };
+
+  template<typename _Tp, typename _Alloc = allocator<void>>
+    struct associated_allocator
+    : __associated_allocator_impl<_Tp, _Alloc>
+    {
+      static auto
+      get(const _Tp& __t, const _Alloc& __a = _Alloc()) noexcept
+      { return __associated_allocator_impl<_Tp, _Alloc>::_S_get(__t, __a); }
+    };
+
+  template<typename _Tp, typename _Alloc = allocator<void>>
+    using associated_allocator_t
+      = typename associated_allocator<_Tp, _Alloc>::type;
+
+  // get_associated_allocator:
+
+  template<typename _Tp>
+    inline associated_allocator_t<_Tp>
+    get_associated_allocator(const _Tp& __t) // XXX noexcept ?
+    { return associated_allocator<_Tp>::get(__t); }
+
+  template<typename _Tp, typename _Alloc>
+    inline associated_allocator_t<_Tp, _Alloc>
+    get_associated_allocator(const _Tp& __t, const _Alloc& __a) // XXX noexcept ?
+    { return associated_allocator<_Tp, _Alloc>::get(__t, __a); }
+
+  enum class fork_event {
+    prepare,
+    parent,
+    child
+  };
+
+  class execution_context
+  {
+  public:
+    class service
+    {
+    protected:
+      // construct / copy / destroy:
+
+      service(execution_context& __owner);
+      service(const service&) = delete;
+      service& operator=(const service&) = delete;
+      virtual ~service();
+
+      // service observers:
+
+      execution_context& context() noexcept;
+
+    private:
+      friend class execution_context; // exposition only
+
+      // service operations:
+
+      virtual void shutdown_service() = 0;
+      virtual void notify_fork(fork_event __e);
+
+      execution_context& _M_context;
+    };
+
+    // construct / copy / destroy:
+
+    execution_context() { }
+
+    execution_context(const execution_context&) = delete;
+    execution_context& operator=(const execution_context&) = delete;
+
+    virtual ~execution_context()
+    {
+      shutdown_context();
+      destroy_context();
+    }
+
+    // execution context operations:
+
+    void
+    notify_fork(fork_event __e)
+    {
+      auto __l = [=](auto& __svc) { __svc->notify_fork(__e); };
+      if (__e == fork_event::prepare)
+	std::for_each(_M_services.rbegin(), _M_services.rend(), __l);
+      else
+	std::for_each(_M_services.begin(), _M_services.end(), __l);
+    }
+
+  protected:
+    // execution context protected operations:
+
+    void
+    shutdown_context()
+    {
+      // XXX how is idempotency ensured? need bool flags in the list?
+      std::for_each(_M_services.rbegin(), _M_services.rend(),
+	  [=](auto& __svc) { __svc->shutdown_context(); });
+    }
+
+    void
+    destroy_context()
+    {
+      while (_M_services.size())
+	_M_services.pop_back();
+    }
+
+  private:
+    using _ServiceList = std::list<std::unique_ptr<service>>;
+    // Sorted in order of beginning of service object lifetime.
+    _ServiceList _M_services;
+#if __cpp_rtti
+    using __key_type = std::type_index;
+
+    template<typename _Key>
+      static __key_type
+      _S_key()
+      { return std::type_index(typeid(_Key)); }
+#else
+    // TODO always use this even when RTTI available?
+    using __key_type = void(*)();
+
+    template<typename _Key>
+      static __key_type
+      _S_key()
+      { return &_S_key<_Key>; }
+#endif
+    std::unordered_map<__key_type, service*> _M_keys;
+
+    template<typename _Service>
+      friend _Service&
+      use_service(execution_context&);
+
+    template<typename _Service, typename... _Args>
+      friend _Service&
+      make_service(execution_context&, _Args&&...);
+
+    template<typename _Service>
+      friend bool
+      has_service(execution_context&) noexcept;
+  };
+
+  // XXX spec for this is incomplete, just remove "..." ?
+  class service_already_exists : public logic_error { };
+
+  // XXX The term "service class" is not defined but is used in the spec
+
+  template<typename _Service, typename = __void_t<>>
+    struct __service_key_type
+    { using __type = _Service; };
+
+  template<typename _Service>
+    struct __service_key_type<_Service, __void_t<typename _Service::key_type>>
+    { using __type = typename _Service::key_type; };
+
+  // XXX simplify precondition:
+  // Requires: Service is the same type as Key, or Service is publicly and
+  // unambiguously derived from Key, and Key is publicly and unambiguously
+  // derived from execution_context::service.
+  template<typename _Service>
+    _Service&
+    use_service(execution_context& __ctx)
+    {
+      using _Key = typename __service_key_type<_Service>::__type;
+      auto __key = execution_context::_S_key<_Key>();
+      auto& __svc = __ctx._M_keys[__key];
+      if (__svc == nullptr)
+	{
+	  __try {
+	    __ctx._M_services.push_back(std::make_unique<_Service>(__ctx));
+	    __svc = std::addressof(__ctx._M_services.back());
+	  } __catch(...) {
+	    __ctx._M_keys.erase(__key);
+	    __throw_exception_again;
+	  }
+	}
+      return *__svc;
+    }
+
+  // XXX simplify precondition:
+  // Requires: Service is the same type as Key, or Service is publicly and
+  // unambiguously derived from Key, and Key is publicly and unambiguously
+  // derived from execution_context::service. A service object of type Key
+  // does not already exist in the execution_context set identified by ctx.
+  template<typename _Service, typename... _Args>
+    _Service&
+    make_service(execution_context& __ctx, _Args&&... __args)
+    {
+      using _Key = typename __service_key_type<_Service>::__type;
+      auto __key = execution_context::_S_key<_Key>();
+      auto& __svc = __ctx._M_keys[__key];
+      if (__svc != nullptr)
+	throw service_already_exists();
+      __try {
+	__ctx._M_services.push_back(
+	    std::make_unique<_Service>(__ctx, std::forward<_Args>(__args)...));
+	__svc = std::addressof(__ctx._M_services.back());
+      } __catch(...) {
+	__ctx._M_keys.erase(__key);
+	__throw_exception_again;
+      }
+      return *__svc;
+    }
+
+
+  // XXX simplify precondition:
+  // Requires: Service is the same type as Key, or Service is publicly and
+  // unambiguously derived from Key, and Key is publicly and unambiguously
+  // derived from execution_context::service.
+  template<typename _Service>
+    bool
+    has_service(execution_context& __ctx) noexcept
+    {
+      using _Key = typename __service_key_type<_Service>::__type;
+      return __ctx._M_keys.count(execution_context::_S_key<_Key>());
+    }
+
+  template<typename _Tp> struct is_executor : false_type { };
+
+  struct executor_arg_t { };
+
+  constexpr executor_arg_t executor_arg = executor_arg_t();
+
+  template<typename _Tp, typename _Executor>
+    struct uses_executor;
+
+  // XXX either <experimental/executor> should include <experimental/netfwd>
+  // or it needs this declaration before associated_executor.
+  class system_executor;
+
+  template<typename _Tp, typename _Executor = system_executor>
+    struct associated_executor;
+
+  template<typename _Tp, typename _Executor = system_executor>
+    using associated_executor_t
+      = typename associated_executor<_Tp, _Executor>::type;
+
+  // get_associated_executor:
+
+  template<typename _Tp>
+    associated_executor_t<_Tp>
+    get_associated_executor(const _Tp& __t);
+
+  template<typename _Tp, typename _Executor>
+    associated_executor_t<_Tp, _Executor>
+    get_associated_executor(const _Tp& __t, const _Executor& __ex);
+
+  template<typename _Tp, typename _ExecutionContext>
+    associated_executor_t<_Tp, typename _ExecutionContext::executor_type>
+    get_associated_executor(const _Tp& __t, _ExecutionContext& __ctx);
+
+  template<typename _Tp, typename _Executor>
+    class executor_wrapper;
+
+  template<typename _Tp, typename _Executor, typename _Signature>
+    struct handler_type<executor_wrapper<_Tp, _Executor>, _Signature>;
+
+  template<typename _Tp, typename _Executor>
+    class async_result<executor_wrapper<_Tp, _Executor>>;
+
+  template<typename _Tp, typename _Executor, typename _Allocator>
+    struct associated_allocator<executor_wrapper<_Tp, _Executor>, _Allocator>;
+
+  template<typename _Tp, typename _Executor, typename _Executor1>
+    struct associated_executor<executor_wrapper<_Tp, _Executor>, _Executor1>;
+
+  // wrap:
+
+  template<typename _Executor, typename _Tp>
+    executor_wrapper<decay_t<_Tp>, _Executor>
+    wrap(const _Executor& __ex, _Tp&& __t);
+
+  template<typename _ExecutionContext, typename _Tp>
+    executor_wrapper<decay_t<_Tp>, typename _ExecutionContext::executor_type>
+    wrap(_ExecutionContext& __ctx, _Tp&& __t);
+
+  template<typename _Tp, typename _Executor>
+    class executor_work;
+
+  // make_work:
+
+  template<typename _Executor>
+    executor_work<_Executor>
+    make_work(const _Executor& __ex);
+
+  template<typename _ExecutionContext>
+    executor_work<typename _ExecutionContext::executor_type>
+    make_work(_ExecutionContext& __ctx);
+
+  template<typename _Tp>
+    executor_work<associated_executor_t<_Tp>>
+    make_work(const _Tp& __t);
+
+  template<typename _Tp, typename _Executor>
+    executor_work<associated_executor_t<_Tp, _Executor>>
+    make_work(const _Tp& __t, const _Executor& __ex);
+
+  template<typename _Tp, typename _ExecutionContext>
+    executor_work<
+      associated_executor_t<_Tp, typename _ExecutionContext::executor_type>>
+    make_work(const _Tp& __t, _ExecutionContext& __ctx);
+
+  class system_executor;
+
+  bool operator==(const system_executor&, const system_executor&);
+  bool operator!=(const system_executor&, const system_executor&);
+
+  template<> struct is_executor<system_executor> : true_type {};
+
+  class bad_executor;
+
+  class executor;
+
+  template <> struct is_executor<executor> : true_type {};
+
+  bool operator==(const executor& __a, const executor& __b) noexcept;
+  bool operator==(const executor& __e, nullptr_t) noexcept;
+  bool operator==(nullptr_t, const executor& __e) noexcept;
+  bool operator!=(const executor& __a, const executor& __b) noexcept;
+  bool operator!=(const executor& __e, nullptr_t) noexcept;
+  bool operator!=(nullptr_t, const executor& __e) noexcept;
+
+  // dispatch:
+
+  template<typename _CompletionToken>
+    auto dispatch(_CompletionToken&& __token);
+  template<typename _Executor, typename _CompletionToken>
+    auto dispatch(const _Executor& __ex, _CompletionToken&& __token);
+  template<typename _ExecutionContext, typename _CompletionToken>
+    auto dispatch(_ExecutionContext& __ctx, _CompletionToken&& __token);
+
+  // post:
+
+  template<typename _CompletionToken>
+    auto post(_CompletionToken&& __token);
+  template<typename _Executor, typename _CompletionToken>
+    auto post(const _Executor& __ex, _CompletionToken&& __token);
+  template<typename _ExecutionContext, typename _CompletionToken>
+    auto post(_ExecutionContext& __ctx, _CompletionToken&& __token);
+
+  // defer:
+
+  template<typename _CompletionToken>
+    auto defer(_CompletionToken&& __token);
+  template<typename _Executor, typename _CompletionToken>
+    auto defer(const _Executor& __ex, _CompletionToken&& __token);
+  template<typename _ExecutionContext, typename _CompletionToken>
+    auto defer(_ExecutionContext& __ctx, _CompletionToken&& __token);
+
+  template<typename _Executor>
+    class strand;
+
+  template<typename _Executor>
+    bool
+    operator==(const strand<_Executor>& __a, const strand<_Executor>& __b);
+
+  template<typename _Executor>
+    bool
+    operator!=(const strand<_Executor>& __a, const strand<_Executor>& __b);
+
+  template<typename _Executor>
+    struct is_executor<strand<_Executor>> : true_type {};
+
+  template<typename _Allocator = allocator<void>>
+    class use_future_t;
+
+  constexpr use_future_t<> use_future = use_future_t<>();
+
+  template<typename _Allocator, typename _Ret, typename... _Args>
+    struct handler_type<use_future_t<_Allocator>, _Ret(_Args...)>;
+
+  template<typename _Ret, typename... _Args>
+    class async_result<packaged_task<_Ret(_Args...)>>;
+
+  template<typename _Signature, typename _Alloc>
+    class packaged_handler;
+
+  template<typename _Signature, typename _Alloc>
+    class async_result<packaged_handler<_Signature, _Alloc>>;
+
+  template<typename _Func, typename _Alloc = allocator<void>>
+    class packaged_token;
+
+  template<typename _Func, typename _Alloc, typename _Ret, typename... _Args>
+    struct handler_type<packaged_token<_Func, _Alloc>, _Ret(_Args...)>;
+
+  template<typename _Func, typename _Alloc = allocator<void>>
+    packaged_token<decay_t<_Func>, _Alloc>
+    package(_Func&& __f, const _Alloc& __a = _Alloc());
+
+  /// @}
+
+_GLIBCXX_END_NAMESPACE_VERSION
+} // namespace network_v1
+} // namespace experimental
+} // namespace std
+
+#endif // C++14
+
+#endif // _GLIBCXX_EXPERIMENTAL_EXECUTOR
