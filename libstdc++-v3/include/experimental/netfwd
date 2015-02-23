@@ -53,7 +53,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   class execution_context;
   template<typename _Tp, typename _Executor>
     class executor_wrapper;
-  template<typename _Tp, typename _Executor>
+  template<typename _Executor>
     class executor_work;
   class system_executor;
   class executor;
