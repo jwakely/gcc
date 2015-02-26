@@ -39,8 +39,12 @@
 #include <chrono>
 #include <future>
 #include <list>
+#include <mutex>
+#include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
+#include <experimental/netfwd>
 #include <bits/unique_ptr.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
@@ -90,24 +94,24 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _CompletionToken, class _Signature>
     struct async_completion
     {
-      typedef handler_type_t<_CompletionToken, _Signature> handler_type;
+      typedef handler_type_t<decay_t<_CompletionToken>, _Signature>
+	handler_type;
 
     private:
-      using __same = is_same<_CompletionToken, handler_type>;
+      using __same = is_same<decay_t<_CompletionToken>, handler_type>;
 
-      static remove_reference_t<_CompletionToken>&
-      _S_get(remove_reference_t<_CompletionToken>& __t, true_type)
+      static _CompletionToken&
+      _S_fwd(_CompletionToken& __t, true_type)
       { return __t; }
 
       static auto
-      _S_get(remove_reference_t<_CompletionToken>& __t, false_type)
+      _S_fwd(_CompletionToken& __t, false_type)
       { return std::forward<_CompletionToken>(__t); }
 
     public:
-      // XXX is remove_reference_t necessary here?
       explicit
-      async_completion(remove_reference_t<_CompletionToken>& __t)
-      : handler(_S_get(__t)), result(handler)
+      async_completion(_CompletionToken& __t)
+      : handler(_S_fwd(__t, __same{})), result(handler)
       { }
 
       async_completion(const async_completion&) = delete;
@@ -176,24 +180,25 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     protected:
       // construct / copy / destroy:
 
+      explicit
       service(execution_context& __owner) : _M_context(__owner) { }
+
       service(const service&) = delete;
       service& operator=(const service&) = delete;
-      virtual ~service() { }
+
+      virtual ~service() { } // TODO should not be inline
 
       // service observers:
 
-      // XXX should this be const? (not deep, so what?)
       execution_context& context() noexcept { return _M_context; }
 
     private:
-      friend class execution_context;
-
       // service operations:
 
-      virtual void shutdown_service() = 0;
+      virtual void shutdown() = 0;
       virtual void notify_fork(fork_event) { }
 
+      friend class execution_context;
       execution_context& _M_context;
     };
 
@@ -206,8 +211,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     virtual ~execution_context()
     {
-      shutdown_context();
-      destroy_context();
+      shutdown();
+      destroy();
     }
 
     // execution context operations:
@@ -215,7 +220,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     void
     notify_fork(fork_event __e)
     {
-      auto __l = [=](auto& __svc) { __svc->notify_fork(__e); };
+      auto __l = [=](auto& __svc) { __svc._M_ptr->notify_fork(__e); };
       if (__e == fork_event::prepare)
 	std::for_each(_M_services.rbegin(), _M_services.rend(), __l);
       else
@@ -226,41 +231,58 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     // execution context protected operations:
 
     void
-    shutdown_context()
+    shutdown()
     {
-      // XXX how is idempotency ensured? need bool flags in the list?
       std::for_each(_M_services.rbegin(), _M_services.rend(),
-	  [=](auto& __svc) { __svc->shutdown_service(); });
+	  [=](auto& __svc) {
+	    if (__svc._M_active)
+	      {
+	        __svc._M_ptr->shutdown();
+		__svc._M_active = false;
+	      }
+	  });
     }
 
     void
-    destroy_context()
+    destroy()
     {
       while (_M_services.size())
 	_M_services.pop_back();
+      _M_keys.clear();
     }
 
   private:
-    using __key_type = void(*)();
-    using _ServicePtr = std::unique_ptr<service, void(*)(service*)>;
-    using _ServiceList = std::list<_ServicePtr>;
+
+    template<typename _Service>
+      static void
+      _S_deleter(service* __svc) { delete static_cast<_Service*>(__svc); }
+
+    struct _ServicePtr
+    {
+      template<typename _Service>
+	explicit
+	_ServicePtr(_Service* __svc)
+	: _M_ptr(__svc, &_S_deleter<_Service>), _M_active(true) { }
+
+      std::unique_ptr<service, void(*)(service*)> _M_ptr;
+      bool _M_active;
+    };
+
+    std::mutex _M_mutex;
 
     // Sorted in order of beginning of service object lifetime.
-    _ServiceList _M_services;
+    std::list<_ServicePtr> _M_services;
 
     template<typename _Service, typename... _Args>
       service*
       _M_add_svc(_Args&&... __args)
       {
 	_M_services.push_back(
-	    _ServicePtr{ new _Service{*this, std::forward<_Args>(__args)...},
-			 &_S_deleter<_Service> } );
-	return _M_services.back().get();
+	    _ServicePtr{new _Service{*this, std::forward<_Args>(__args)...}} );
+	return _M_services.back()._M_ptr.get();
       }
 
-    template<typename _Service>
-      static void
-      _S_deleter(service* __svc) { delete static_cast<_Service*>(__svc); }
+    using __key_type = void(*)();
 
     template<typename _Key>
       static __key_type
@@ -269,7 +291,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     std::unordered_map<__key_type, service*> _M_keys;
 
     template<typename _Service>
-      friend _Service&
+      friend typename _Service::key_type&
       use_service(execution_context&);
 
     template<typename _Service, typename... _Args>
@@ -278,32 +300,18 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     template<typename _Service>
       friend bool
-      has_service(execution_context&) noexcept;
+      has_service(const execution_context&) noexcept;
   };
 
-  // XXX spec for this is incomplete, just remove "..." ?
   class service_already_exists : public logic_error { };
 
-  // XXX The term "service class" is not defined but is used in the spec
-
-  template<typename _Service, typename = __void_t<>>
-    struct __service_key_type
-    { using __type = _Service; };
-
   template<typename _Service>
-    struct __service_key_type<_Service, __void_t<typename _Service::key_type>>
-    { using __type = typename _Service::key_type; };
-
-  // XXX simplify precondition:
-  // Requires: Service is the same type as Key, or Service is publicly and
-  // unambiguously derived from Key, and Key is publicly and unambiguously
-  // derived from execution_context::service.
-  template<typename _Service>
-    _Service&
+    typename _Service::key_type&
     use_service(execution_context& __ctx)
     {
-      using _Key = typename __service_key_type<_Service>::__type;
+      using _Key = typename _Service::key_type;
       auto __key = execution_context::_S_key<_Key>();
+      std::lock_guard<std::mutex> __lock(__ctx._M_mutex);
       auto& __svc = __ctx._M_keys[__key];
       if (__svc == nullptr)
 	{
@@ -314,20 +322,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    __throw_exception_again;
 	  }
 	}
-      return static_cast<_Service&>(*__svc);
+      return static_cast<_Key&>(*__svc);
     }
 
-  // XXX simplify precondition:
-  // Requires: Service is the same type as Key, or Service is publicly and
-  // unambiguously derived from Key, and Key is publicly and unambiguously
-  // derived from execution_context::service. A service object of type Key
-  // does not already exist in the execution_context set identified by ctx.
   template<typename _Service, typename... _Args>
     _Service&
     make_service(execution_context& __ctx, _Args&&... __args)
     {
-      using _Key = typename __service_key_type<_Service>::__type;
+      using _Key = typename _Service::key_type;
       auto __key = execution_context::_S_key<_Key>();
+      std::lock_guard<std::mutex> __lock(__ctx._M_mutex);
       auto& __svc = __ctx._M_keys[__key];
       if (__svc != nullptr)
 	throw service_already_exists();
@@ -340,35 +344,52 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return static_cast<_Service&>(*__svc);
     }
 
-
-  // XXX simplify precondition:
-  // Requires: Service is the same type as Key, or Service is publicly and
-  // unambiguously derived from Key, and Key is publicly and unambiguously
-  // derived from execution_context::service.
   template<typename _Service>
     bool
-    has_service(execution_context& __ctx) noexcept
+    has_service(const execution_context& __ctx) noexcept
     {
-      using _Key = typename __service_key_type<_Service>::__type;
+      using _Key = typename _Service::key_type;
+      std::lock_guard<std::mutex> __lock(__ctx._M_mutex);
       return __ctx._M_keys.count(execution_context::_S_key<_Key>());
     }
-
-  template<typename _Tp> struct is_executor : false_type { };
 
   struct executor_arg_t { };
 
   constexpr executor_arg_t executor_arg = executor_arg_t();
 
   template<typename _Tp, typename _Executor>
-    struct uses_executor;
+    struct uses_executor : false_type { }; // TODO detect _Tp::executor_type
 
-  // XXX either <experimental/executor> should include <experimental/netfwd>
-  // or it needs this declaration before associated_executor.
-  // (is this covered by blanket wording about default args?)
-  class system_executor;
+  // TODO implement uses_executor construction
+
+  template<typename _Tp, typename _Executor, typename = __void_t<>>
+    struct __associated_executor_impl
+    {
+      using type = _Executor;
+
+      static type
+      _S_get(const _Tp&, const _Executor& __e) noexcept { return __e; }
+    };
+
+  template<typename _Tp, typename _Executor>
+    struct __associated_executor_impl<_Tp, _Executor,
+				       __void_t<typename _Tp::executor_type>>
+    {
+      using type = typename _Tp::executor_type;
+
+      static type
+      _S_get(const _Tp& __t, const _Executor&) noexcept
+      { return __t.get_executor(); }
+    };
 
   template<typename _Tp, typename _Executor = system_executor>
-    struct associated_executor;
+    struct associated_executor
+    : __associated_executor_impl<_Tp, _Executor>
+    {
+      static auto
+      get(const _Tp& __t, const _Executor& __e = _Executor()) noexcept
+      { return __associated_executor_impl<_Tp, _Executor>::_S_get(__t, __e); }
+    };
 
   template<typename _Tp, typename _Executor = system_executor>
     using associated_executor_t
@@ -377,16 +398,24 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   // get_associated_executor:
 
   template<typename _Tp>
-    associated_executor_t<_Tp>
-    get_associated_executor(const _Tp& __t);
+    inline associated_executor_t<_Tp>
+    get_associated_executor(const _Tp& __t)
+    { return associated_executor<_Tp>::get(__t); }
 
+  // TODO check SFINAE constraints in updated paper
+  // http://chriskohlhoff.github.io/asio-tr2/#async.assoc.exec.get
   template<typename _Tp, typename _Executor>
-    associated_executor_t<_Tp, _Executor>
-    get_associated_executor(const _Tp& __t, const _Executor& __ex);
+    inline associated_executor_t<_Tp, _Executor>
+    get_associated_executor(const _Tp& __t, const _Executor& __ex)
+    { return associated_executor<_Tp, _Executor>::get(__t, __ex); }
 
+  // TODO check SFINAE constraints in updated paper
+  // http://chriskohlhoff.github.io/asio-tr2/#async.assoc.exec.get
   template<typename _Tp, typename _ExecutionContext>
+    inline
     associated_executor_t<_Tp, typename _ExecutionContext::executor_type>
-    get_associated_executor(const _Tp& __t, _ExecutionContext& __ctx);
+    get_associated_executor(const _Tp& __t, _ExecutionContext& __ctx)
+    { return get_associated_executor(__t, __ctx.get_executor()); }
 
   template<typename _Tp, typename _Executor>
     class executor_wrapper;
@@ -415,6 +444,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   template<typename _Executor>
     class executor_work;
+  // XXX destructor signature missing from http://chriskohlhoff.github.io/asio-tr2/#async.exec.work.dtor
 
   // make_work:
 
@@ -439,25 +469,360 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       associated_executor_t<_Tp, typename _ExecutionContext::executor_type>>
     make_work(const _Tp& __t, _ExecutionContext& __ctx);
 
-  class system_executor;
+  template<typename _Func>
+    inline void
+    __decay_copy_and_call(_Func __f) { __f(); }
 
-  bool operator==(const system_executor&, const system_executor&);
-  bool operator!=(const system_executor&, const system_executor&);
+  class system_executor
+  {
+  public:
 
-  template<> struct is_executor<system_executor> : true_type {};
+    // executor operations:
+    system_executor() = default;
 
-  class bad_executor;
+    execution_context& context() noexcept { return _S_context; }
 
-  class executor;
+    void on_work_started() noexcept { }
+    void on_work_finished() noexcept { }
 
-  template <> struct is_executor<executor> : true_type {};
+    template<typename _Func, typename _Alloc>
+      void
+      dispatch(_Func&& __f, const _Alloc& __a)
+      { __decay_copy_and_call(std::forward<_Func>(__f)); }
 
-  bool operator==(const executor& __a, const executor& __b) noexcept;
-  bool operator==(const executor& __e, nullptr_t) noexcept;
-  bool operator==(nullptr_t, const executor& __e) noexcept;
-  bool operator!=(const executor& __a, const executor& __b) noexcept;
-  bool operator!=(const executor& __e, nullptr_t) noexcept;
-  bool operator!=(nullptr_t, const executor& __e) noexcept;
+    template<typename _Func, typename _Alloc>
+      void
+      post(_Func&& __f, const _Alloc& __a)
+      {
+	std::lock_guard<std::mutex> __lock(_S_context._M_mtx);
+	_M_tasks.push_back(std::move(__f));
+	_S_contect._M_go();
+      }
+
+    template<typename _Func, typename _Alloc>
+      void
+      defer(_Func&& __f, const _Alloc& __a)
+      {
+	// TODO
+      }
+
+  private:
+    struct __system_execution_context : execution_context
+    {
+      using executor_type = system_executor;
+
+      system_executor get_executor() const { return {}; }
+
+      std::thread _M_thread;
+      std::mutex _M_mtx;
+      std::condition_variable _M_cv;
+      std::deque<std::function<void()> _M_tasks;
+      bool _M_running = false;
+
+      void
+      _M_run()
+      {
+	while (true)
+	  {
+	    std::function<void()> __f;
+	    {
+	      std::unique_guard<std::mutex> __lock(_M_mtx);
+	      _M_cv.wait(__lock, [&]{ return _M_running && !_M_tasks.empty(); });
+	      if (!_M_running)
+		return;
+	      __f = std::move(_M_tasks.front());
+	      _M_tasks.pop_back();
+	    }
+	    __f();
+	  }
+      }
+
+      void
+      _M_go()
+      {
+	if (!_M_thread.joinable())
+	  {
+	    _M_running = true;
+	    _M_thread = std::thread(&__system_execution_context::_M_run, this);
+	  }
+	_M_cv.notify_one();
+      }
+
+      ~__system_execution_context()
+      {
+	{
+	  std::lock_guard<std::mutex> __lock(_M_mtx);
+	  _M_running = false;
+	}
+	_M_cv.notify_all();
+	if (_M_thread.joinable())
+	  _M_thread.join();
+      }
+    };
+    static __system_execution_context _S_context;
+  };
+
+  inline bool
+  operator==(const system_executor&, const system_executor&)
+  { return true; }
+
+  inline bool
+  operator!=(const system_executor&, const system_executor&)
+  { return false; }
+
+  class bad_executor : public std::exception { };
+
+  inline void __throw_bad_executor() // TODO non-inline
+  {
+#if __cpp_exceptions
+    throw bad_executor();
+#else
+    __builtin_abort();
+#endif
+  }
+
+  class executor
+  {
+  public:
+    // construct / copy / destroy:
+
+    executor() noexcept = default;
+
+    executor(nullptr_t) noexcept { }
+    executor(const executor&) noexcept = default;
+    executor(executor&&) noexcept = default;
+
+    template<typename _Executor>
+      executor(_Executor __e)
+      : _M_target(_M_create(std::move(__e)))
+      { }
+
+    template<typename _Executor, typename _Alloc>
+      executor(allocator_arg_t, const _Alloc& __a, _Executor __e)
+      : _M_target(_M_create(std::move(__e), __a))
+      { }
+
+    executor& operator=(const executor&) noexcept = default;
+    executor& operator=(executor&&) noexcept = default;
+
+    executor&
+    operator=(nullptr_t) noexcept
+    {
+      _M_target = nullptr;
+      return *this;
+    }
+
+    template<typename _Executor>
+      executor&
+      operator=(_Executor __e)
+      {
+	executor(std::move(__e)).swap(*this);
+	return *this;
+      }
+
+    ~executor() = default;
+
+    // executor modifiers:
+
+    void
+    swap(executor& __other) noexcept
+    { _M_target.swap(__other._M_target); }
+
+    template<typename _Executor, typename _Alloc>
+      void
+      assign(_Executor __e, const _Alloc& __a)
+      { executor(allocator_arg, __a, std::move(__e)).swap(*this); }
+
+    // executor operations:
+
+    execution_context&
+    context() noexcept { return _M_target->context(); }
+
+    void
+    on_work_started() noexcept { return _M_target->on_work_started(); }
+
+    void
+    on_work_finished() noexcept { return _M_target->on_work_finished(); }
+
+    template<typename _Func, typename _Alloc>
+      void
+      dispatch(_Func&& __f, const _Alloc& __a)
+      {
+	if (!_M_target)
+	  __throw_bad_executor();
+	auto* __pf = std::addressof(__f);
+	_M_target->dispatch([=]{ auto __fcopy = *__pf; __fcopy(); });
+      }
+
+    template<typename _Func, typename _Alloc>
+      void
+      post(_Func&& __f, const _Alloc& __a)
+      {
+	if (!_M_target)
+	  __throw_bad_executor();
+	auto* __pf = std::addressof(__f);
+	_M_target->post([=]{ auto __fcopy = *__pf; __fcopy(); });
+      }
+
+    template<typename _Func, typename _Alloc>
+      void
+      defer(_Func&& __f, const _Alloc& __a)
+      {
+	if (!_M_target)
+	  __throw_bad_executor();
+	// TODO this is wrong, DECAY_COPY needs to happen now,
+	// not after lambda is invoked.
+	auto* __pf = std::addressof(__f);
+	_M_target->defer([=]{ auto __fcopy = *__pf; __fcopy(); });
+      }
+
+    // executor capacity:
+
+    explicit operator bool() const noexcept
+    { return static_cast<bool>(_M_target); }
+
+    // executor target access:
+
+#if __cpp_rtti
+    const type_info&
+    target_type() const noexcept
+    { return _M_target ? _M_target->target_type() : typeid(void); }
+
+    template<typename _Executor>
+      _Executor*
+      target() noexcept
+      {
+	if (_M_target)
+	  if (const auto* __p = _M_target->target(typeid(_Executor)))
+	    return const_cast<_Executor*>(static_cast<const _Executor>(__p));
+	return nullptr;
+      }
+
+    template<typename _Executor>
+      const _Executor*
+      target() const noexcept
+      {
+	if (_M_target)
+	  if (const auto* __p = _M_target->target(typeid(_Executor)))
+	    return static_cast<const _Executor>(__p);
+	return nullptr;
+      }
+#endif
+
+  private:
+    struct _Tgt
+    {
+      virtual void on_work_started() noexcept = 0;
+      virtual void on_work_finished() noexcept = 0;
+      virtual execution_context& context() noexcept = 0;
+      virtual void dispatch(std::function<void()>) = 0;
+      virtual void post(std::function<void()>) = 0;
+      virtual void defer(std::function<void()>) = 0;
+#if __cpp_rtti
+      virtual const type_info& target_type() const = 0;
+      virtual void* target(const std::type_info&) const = 0;
+      virtual bool _M_equals(_Tgt*) const noexcept = 0; 
+      virtual const void* _M_get_executor() const noexcept = 0;
+#endif
+    };
+
+    template<typename _Ex, typename _Alloc>
+      struct _TgtImpl : _Tgt
+      {
+	explicit
+	_TgtImpl(_Ex&& __ex, const _Alloc& __a)
+	: _M_impl(std::move(__ex), __a) { }
+
+	void on_work_started() noexcept { _M_ex().on_work_started(); }
+	void on_work_finished() noexcept { _M_ex().on_work_finished(); }
+	execution_context& context() noexcept { return _M_ex().context(); }
+	void
+	dispatch(std::function<void()> __f)
+	{ _M_ex().dispatch(std::move(__f), _M_alloc()); }
+	void
+	post(std::function<void()> __f)
+	{ _M_ex().post(std::move(__f), _M_alloc()); }
+	void
+	defer(std::function<void()> __f)
+	{ _M_ex().defer(std::move(__f), _M_alloc()); }
+
+#if __cpp_rtti
+	virtual const type_info&
+	target_type() const
+	{ return typeid(_Ex); }
+
+	virtual const void*
+	target(const std::type_info& __ti) const
+	{
+	  if (__ti == typeid(_Ex))
+	    return std::addressof(_M_ex());
+	  return nullptr;
+	}
+
+	virtual bool
+	_M_equals(const _Tgt* __tgt) const noexcept
+	{
+	  if (__tgt->target_type() == typeid(_Ex))
+	    *static_cast<const _Ex*>(__tgt->_M_get_executor()) == _M_ex();
+	  return false;
+	}
+
+	virtual const void*
+	_M_get_executor() const noexcept
+	{ return std::addressof(_M_ex()); }
+#endif
+
+	_Ex& _M_ex() { return std::get<0>(_M_impl); }
+	_Alloc& _M_alloc() { return std::get<1>(_M_impl); }
+	std::tuple<_Ex, _Alloc> _M_impl;
+      };
+
+    template<typename _Ex, typename _Alloc = std::allocator<void>>
+      shared_ptr<_Tgt>
+      _M_create(_Ex&& __ex, const _Alloc& __a = _Alloc())
+      {
+	return std::allocate_shared<_TgtImpl<_Ex, _Alloc>>(__a,
+							   std::move(__ex),
+							   __a);
+      }
+
+    friend bool
+    operator==(const executor& __a, const executor& __b) noexcept;
+
+    shared_ptr<_Tgt> _M_target;
+  };
+
+#if __cpp_rtti
+  inline bool
+  operator==(const executor& __a, const executor& __b) noexcept
+  {
+    if (!__a._M_target && !__b._M_target)
+      return true;
+    return __a._M_target == __b._M_target
+      ? __a._M_target->_M_equals(__b._M_target.get())
+      : false;
+  }
+
+  inline bool
+  operator!=(const executor& __a, const executor& __b) noexcept
+  { return !(__a == __b); }
+#endif
+
+  inline bool
+  operator==(const executor& __e, nullptr_t) noexcept
+  { return !__e; }
+
+  inline bool
+  operator==(nullptr_t, const executor& __e) noexcept
+  { return !__e; }
+
+  inline bool
+  operator!=(const executor& __e, nullptr_t) noexcept
+  { return static_cast<bool>(__e); }
+
+  inline bool
+  operator!=(nullptr_t, const executor& __e) noexcept
+  { return static_cast<bool>(__e); }
 
   // dispatch:
 
@@ -487,54 +852,412 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     auto defer(_ExecutionContext& __ctx, _CompletionToken&& __token);
 
   template<typename _Executor>
-    class strand;
+    class strand
+    {
+    public:
+      // types:
+
+      typedef _Executor inner_executor_type;
+
+      // construct / copy / destroy:
+
+      strand();
+      template<typename _Alloc>
+	strand(allocator_arg_t, const _Alloc& __a);
+      explicit strand(_Executor __ex) : _M_inner_ex(__ex) { }
+      template<typename _Alloc>
+	strand(allocator_arg_t, const _Alloc& __a, _Executor __ex)
+	: _M_inner_ex(__ex) { }
+      strand(const strand& __other) noexcept
+      : _M_state(__other._M_state), _M_inner_ex(__other._M_inner_ex) { }
+      strand(strand&& __other) noexcept
+      : _M_state(std::move(__other._M_state)),
+	_M_inner_ex(std::move(__other._M_inner_ex)) { }
+      template<typename _OtherExecutor>
+	strand(const strand<_OtherExecutor>& __other) noexcept
+	: _M_state(__other._M_state), _M_inner_ex(__other._M_inner_ex) { }
+      template<typename _OtherExecutor>
+	strand(strand<_OtherExecutor>&& __other) noexcept
+	: _M_state(std::move(__other._M_state)),
+	  _M_inner_ex(std::move(__other._M_inner_ex)) { }
+
+      strand&
+      operator=(const strand& __other) noexcept
+      {
+	// TODO lock __other
+	_M_inner_ex = __other._M_inner_ex;
+	return *this;
+      }
+
+      strand&
+      operator=(strand&& __other) noexcept
+      {
+	_M_inner_ex = std::move(__other._M_inner_ex);
+	return *this;
+      }
+
+      template<typename _OtherExecutor>
+	strand&
+	operator=(const strand<_OtherExecutor>& __other) noexcept
+	{
+	  // TODO lock __other
+	  _M_inner_ex = __other._M_inner_ex;
+	  return *this;
+	}
+
+      template<typename _OtherExecutor>
+	strand&
+	operator=(strand<_OtherExecutor>&& __other) noexcept;
+	{
+	  _M_inner_ex = std::move(__other._M_inner_ex);
+	  return *this;
+	}
+
+      ~strand(); // the task queue outlives this object if non-empty
+
+      // strand operations:
+
+      inner_executor_type
+      get_inner_executor() const noexcept
+      { return _M_inner_ex; }
+
+      bool
+      running_in_this_thread() const noexcept
+      { return std::this_thread::get_id() == _M_state->_M_running_on; }
+
+      execution_context&
+      context() noexcept
+      { return _M_inner_ex.context(); }
+
+      void on_work_started() noexcept { _M_inner_ex.on_work_started(); }
+      void on_work_finished() noexcept { _M_inner_ex.on_work_finished(); }
+
+      template<typename _Func, typename _Alloc>
+	void
+	dispatch(_Func&& __f, const _Alloc& __a)
+	{
+	  if (running_in_this_thread())
+	    __decay_copy_and_call(std::forward<_Func>(__f));
+	  else
+	    post(std::forward<_Func>(__f), __a);
+	}
+
+      template<typename _Func, typename _Alloc>
+	void
+	post(_Func&& __f, const _Alloc& __a);
+
+      template<typename _Func, typename _Alloc>
+	void
+	defer(_Func&& __f, const _Alloc& __a);
+
+    private:
+      template<typename _Ex>
+	friend bool operator==(const strand<_Ex>&, const strand<_Ex>&);
+
+      // TODO add synchronised queue
+      struct _State
+      {
+	std::thread::id _M_running_on;
+      };
+      shared_ptr<_State> _M_state;
+      _Executor _M_inner_ex;
+    };
 
   template<typename _Executor>
     bool
-    operator==(const strand<_Executor>& __a, const strand<_Executor>& __b);
+    operator==(const strand<_Executor>& __a, const strand<_Executor>& __b)
+    { return __a._M_state == __b._M_state; }
 
   template<typename _Executor>
     bool
-    operator!=(const strand<_Executor>& __a, const strand<_Executor>& __b);
-
-  template<typename _Executor>
-    struct is_executor<strand<_Executor>> : true_type {};
-
-  template<typename _Allocator = allocator<void>>
-    class use_future_t { };
-
-  constexpr use_future_t<> use_future = use_future_t<>();
-
-  template<typename _Allocator, typename _Ret, typename... _Args>
-    struct handler_type<use_future_t<_Allocator>, _Ret(_Args...)>;
+    operator!=(const strand<_Executor>& __a, const strand<_Executor>& __b)
+    { return !(__a == __b); }
 
 #if defined(_GLIBCXX_HAS_GTHREADS) && defined(_GLIBCXX_USE_C99_STDINT_TR1) \
   && (ATOMIC_INT_LOCK_FREE > 1)
+
+  template<typename _Allocator = allocator<void>>
+    class use_future_t
+    {
+    public:
+      // use_future_t types:
+      typedef _Allocator allocator_type;
+
+      // use_future_t members:
+      constexpr use_future_t() noexcept : _M_alloc() { }
+
+      explicit
+      use_future_t(const _Allocator& __a) noexcept : _M_alloc(__a) { }
+
+      template<class _OtherAllocator>
+	use_future_t<_OtherAllocator>
+	rebind(const _OtherAllocator& __a) const noexcept
+	{ return use_future_t<_OtherAllocator>(__a); }
+
+      allocator_type get_allocator() const noexcept { return _M_alloc; }
+
+    private:
+      _Allocator _M_alloc;
+    };
+
+  constexpr use_future_t<> use_future = use_future_t<>();
+
+  template<typename... _Args>
+    struct __use_future_handler_result
+  // [async.use.future.traits]
+  template<typename _Allocator, typename _Ret, typename... _Args>
+    class handler_type<use_future_t<_Allocator>, _Ret(_Args...)>
+    {
+      template<typename... _Args>
+	struct __is_error_result : false_type { };
+
+      template<typename... _Args>
+	struct __is_error_result<error_code, _Args...> : true_type { };
+
+      template<typename... _Args>
+	struct __is_error_result<exception_ptr, _Args...> : true_type { };
+
+      static exception_ptr
+      _S_exptr(exception_ptr& __ex)
+      { return std::move(__ex); }
+
+      static exception_ptr
+      _S_exptr(const error_code& __ec)
+      { return make_exception_ptr(system_error(__ec)); }
+
+      template<bool _IsError, typename... _UArgs>
+	struct _Type;
+
+      // N == 0
+      template<bool _IsError>
+	struct _Type<_IsError>
+	{
+	  std::promise<void> _M_promise;
+
+	  void
+	  operator()()
+	  {
+	    _M_promise.set_value();
+	  }
+	};
+
+      // N == 1, U0 is error_code or exception_ptr
+      template<typename _UArg0>
+	struct _Type<true, _UArg0>
+	{
+	  std::promise<void> _M_promise;
+
+	  template<typename _Arg0>
+	    void
+	    operator()(_Arg0&& __a0)
+	    {
+	      if (__a0)
+		_M_promise.set_exception(_S_exptr(__a0));
+	      else
+		_M_promise.set_value();
+	    }
+	};
+
+      // N == 1, U0 is not error_code or exception_ptr
+      template<typename _UArg0>
+	struct _Type<false, _UArg0>
+	{
+	  std::promise<_UArg0> _M_promise;
+
+	  template<typename _Arg0>
+	    void
+	    operator()(_Arg0&& __a0)
+	    {
+	      _M_promise.set_value(std::forward<_Arg0>(__a0));
+	    }
+	};
+
+      // N == 2, U0 is error_code or exception_ptr
+      template<typename _UArg0, typename _UArg1>
+	struct _Type<true, _UArg0, _UArg1>
+	{
+	  std::promise<_UArg1> _M_promise;
+
+	  template<typename _Arg0, typename _Arg1>
+	    void
+	    operator()(_Arg0&& __a0, _Arg1&& __a1)
+	    {
+	      if (__a0)
+		_M_promise.set_exception(_S_exptr(__a0));
+	      else
+		_M_promise.set_value(std::forward<_Arg1>(__a1));
+	    }
+	};
+
+      // N >= 2, U0 is not error_code or exception_ptr
+      template<typename... _UArgs>
+	struct _Type<false, _UArgs...>
+	{
+	  static_assert(sizeof...(_UArgs) > 1, "wrong partial specialization");
+
+	  std::promise<tuple<_UArgs...>> _M_promise;
+
+	  template<typename... _Args>
+	    void
+	    operator()(_Args&&... __args)
+	    {
+	      _M_promise.set_value(
+		  std::forward_as_tuple(std::forward<_Args>(__args)...));
+	    }
+	};
+
+      // N > 2, U0 is error_code or exception_ptr
+      template<typename _UArg0, typename... _UArgs>
+	struct _Type<true, _UArg0, _UArgs...>
+	{
+	  static_assert(sizeof...(_UArgs) > 1, "wrong partial specialization");
+
+	  std::promise<tuple<_UArgs...>> _M_promise;
+
+	  template<typename _Arg0, typename... _Args>
+	    void
+	    operator()(_Arg0&& __a0, _Args&&... __args)
+	    {
+	      if (__a0)
+		_M_promise.set_exception(_S_exptr(__a0));
+	      else
+		_M_promise.set_value(
+		    std::forward_as_tuple(std::forward<_Args>(__args)...));
+	    }
+	};
+
+    public:
+      typedef _Type<__is_error_result<_Args>::value, decay_t<_Args>...> type;
+    };
+
+  template<typename _Alloc, typename _Ret, typename... _Args>
+    struct async_result<typename handler_type<use_future_t<_Alloc>,
+					      _Ret(_Args...)>::type>
+    {
+      using _Handler
+	= typename handler_type<use_future_t<_Alloc>, _Ret(_Args...)>::type;
+
+      explicit
+      async_result(_Handler& __h) : _M_handler(__h) { }
+
+      auto get() { return _M_handler._M_provider.get_future(); }
+
+      async_result(const async_result&) = delete;
+      async_result& operator=(const async_result&) = delete;
+
+    private:
+      _Handler& _M_handler
+    };
+
+  // [async.packaged.task.specializations]
   template<typename _Ret, typename... _Args>
-    class async_result<packaged_task<_Ret(_Args...)>>;
-#endif
+    class async_result<packaged_task<_Ret(_Args...)>>
+    {
+    public:
+      typedef future<_Ret> type;
 
-  template<typename _Signature, typename _Alloc>
-    class packaged_handler;
+      explicit
+      async_result(packaged_task<_Ret(_Args...)>& __t)
+      : _M_future(__t.get_future()) { }
 
-  template<typename _Signature, typename _Alloc>
-    class async_result<packaged_handler<_Signature, _Alloc>>;
+      async_result(const async_result&) = delete;
+      async_result& operator=(const async_result&) = delete;
+
+      type get();
+
+    private:
+      type _M_future;
+    };
 
   template<typename _Func, typename _Alloc = allocator<void>>
-    class packaged_token;
+    class packaged_token
+    {
+    public:
+      // packaged_token types:
+
+      typedef _Alloc allocator_type;
+
+      // packaged_token constructors:
+
+      explicit
+      packaged_token(_Func __f) : _M_func(std::move(__f)) { }
+
+      packaged_token(_Func __f, const _Alloc& __a)
+      : _M_func(std::move(__f)), _M_alloc(__a) { }
+
+      // packaged_token operations:
+
+      allocator_type
+      get_allocator() const noexcept { return _M_alloc; }
+
+    private:
+      _Func _M_func;
+      _Alloc _M_alloc;
+    };
+
+  template<typename _Signature, typename _Alloc>
+    class packaged_handler
+    : public packaged_task<_Signature>
+    {
+    public:
+      // packaged_handler types:
+
+      typedef _Alloc allocator_type;
+
+      // packaged_handler constructors:
+
+      template<typename _Func>
+	explicit
+	packaged_handler(packaged_token<_Func, _Alloc>&& __token)
+	: packaged_task<_Signature>(std::move(__token._M_func)) { }
+
+      // packaged_handler operations:
+
+      allocator_type get_allocator() const noexcept { return _M_alloc; }
+
+    private:
+      _Alloc _M_alloc;
+    };
+
+  template<typename _Signature, typename _Alloc>
+    class async_result<packaged_handler<_Signature, _Alloc>>
+    : public async_result<packaged_task<_Signature>>
+    {
+    public:
+      explicit
+      async_result(packaged_handler<_Signature, _Alloc>& __h)
+      : async_result<packaged_task<_Signature>>(__h) { }
+    };
 
   template<typename _Func, typename _Alloc, typename _Ret, typename... _Args>
-    struct handler_type<packaged_token<_Func, _Alloc>, _Ret(_Args...)>;
+    struct handler_type<packaged_token<_Func, _Alloc>, _Ret(_Args...)>
+    {
+      typedef packaged_handler<result_of_t<_Func(_Args...)>(_Args...), _Alloc>
+	type;
+    };
 
   template<typename _Func, typename _Alloc = allocator<void>>
-    packaged_token<decay_t<_Func>, _Alloc>
-    package(_Func&& __f, const _Alloc& __a = _Alloc());
+    inline packaged_token<decay_t<_Func>, _Alloc>
+    package(_Func&& __f, const _Alloc& __a = _Alloc())
+    {
+      return packaged_token<decay_t<_Func>, _Alloc>(forward<_Func>(__f), __a);
+    }
+
+#endif
 
   /// @}
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace network_v1
 } // namespace experimental
+
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
+  template<typename _Alloc>
+    struct uses_allocator<experimental::executor, _Alloc>
+    : true_type {};
+
+_GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 
 #endif // C++14
