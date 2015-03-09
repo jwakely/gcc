@@ -357,8 +357,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   constexpr executor_arg_t executor_arg = executor_arg_t();
 
+  template<typename _Tp, typename _Executor, typename = __void_t<>>
+    struct __uses_executor_impl : false_type
+    { };
+
   template<typename _Tp, typename _Executor>
-    struct uses_executor : false_type { }; // TODO detect _Tp::executor_type
+    struct __uses_executor_impl<_Tp, _Executor,
+				__void_t<typename _Tp::executor_type>>
+    : is_convertible<_Executor, typename _Tp::executor_type>
+    { };
+
+  template<typename _Tp, typename _Executor>
+    struct uses_executor : __uses_executor_impl<_Tp, _Executor>::type
+    { }:
 
   // TODO implement uses_executor construction
 
@@ -418,29 +429,66 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     { return get_associated_executor(__t, __ctx.get_executor()); }
 
   template<typename _Tp, typename _Executor>
-    class executor_wrapper;
+    class executor_wrapper; // TODO
 
   template<typename _Tp, typename _Executor, typename _Signature>
     struct handler_type<executor_wrapper<_Tp, _Executor>, _Signature>;
 
   template<typename _Tp, typename _Executor>
-    class async_result<executor_wrapper<_Tp, _Executor>>;
+    class async_result<executor_wrapper<_Tp, _Executor>>
+      {
+      public:
+	typedef typename async_result<_Tp>::type type;
+
+        explicit
+	async_result(executor_wrapper<_Tp, _Executor>& __wrapper)
+	: _M_wrapped(__wrapper.unwrap()) { }
+
+        async_result(const async_result&) = delete;
+        async_result& operator=(const async_result&) = delete;
+
+        type get() { return _M_wrapped.get(); }
+
+      private:
+        async_result<_Tp> _M_wrapped;
+      };
 
   template<typename _Tp, typename _Executor, typename _Allocator>
-    struct associated_allocator<executor_wrapper<_Tp, _Executor>, _Allocator>;
+    struct associated_allocator<executor_wrapper<_Tp, _Executor>, _Allocator>
+    {
+      typedef associated_allocator_t<_Tp, _Alloc> type;
+
+        static type
+	get(const executor_wrapper<_Tp, _Executor>& __w,
+	    const _Alloc& __a = _Alloc()) noexcept
+	{ return get_associated_allocator(__w.unwrap(), __a); }
+    };
 
   template<typename _Tp, typename _Executor, typename _Executor1>
-    struct associated_executor<executor_wrapper<_Tp, _Executor>, _Executor1>;
+    struct associated_executor<executor_wrapper<_Tp, _Executor>, _Executor1>
+    {
+      typedef _Executor type;
+
+      static type
+      get(const executor_wrapper<p_T, _Executor>& __w,
+	  const _Executor1& = _Executor1()) noexcept
+      { return __w.get_executor(); }
+    };
 
   // wrap:
 
   template<typename _Executor, typename _Tp>
+    inline
     executor_wrapper<decay_t<_Tp>, _Executor>
-    wrap(const _Executor& __ex, _Tp&& __t);
+    wrap(const _Executor& __ex, _Tp&& __t)
+    { return { std::forward<_Tp>(__t), __ex }; }
 
+  // SFINAE?
   template<typename _ExecutionContext, typename _Tp>
+    inline
     executor_wrapper<decay_t<_Tp>, typename _ExecutionContext::executor_type>
-    wrap(_ExecutionContext& __ctx, _Tp&& __t);
+    wrap(_ExecutionContext& __ctx, _Tp&& __t)
+    { return { __ctx.get_executor(), forward<_Tp>(__t) }; }
 
   template<typename _Executor>
     class executor_work;
