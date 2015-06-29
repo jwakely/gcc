@@ -22,8 +22,9 @@
 #include <memory>
 #include <tuple>
 #include <testsuite_hooks.h>
+#include <testsuite_allocator.h>
 
-struct MyAlloc { };
+using MyAlloc = __gnu_test::SimpleAllocator<int>;
 
 // type that can't be constructed with an allocator
 struct CannotUse

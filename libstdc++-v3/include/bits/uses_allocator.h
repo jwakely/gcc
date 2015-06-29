@@ -38,6 +38,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   /// [allocator.tag]
   struct allocator_arg_t { };
 
+  /// A tag of type allocator_arg_t.
   constexpr allocator_arg_t allocator_arg = allocator_arg_t();
 
   template<typename _Tp, typename _Alloc, typename = __void_t<>>
@@ -58,14 +59,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   struct __uses_alloc_base { };
 
+  /// A tag type indicating construction without an allocator.
   struct __uses_alloc0 : __uses_alloc_base
   {
     struct _Sink { void operator=(const void*) { } } _M_a;
   };
 
+  /// A tag type indicating construction with allocator_arg_t.
   template<typename _Alloc>
     struct __uses_alloc1 : __uses_alloc_base { const _Alloc* _M_a; };
 
+  /// A tag type indicating construction with an allocator argument at the end.
   template<typename _Alloc>
     struct __uses_alloc2 : __uses_alloc_base { const _Alloc* _M_a; };
 
@@ -84,10 +88,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     struct __uses_alloc<false, _Tp, _Alloc, _Args...>
     : __uses_alloc0 { };
 
+  /// A tag type indicating whether/how to construct with an allocator.
   template<typename _Tp, typename _Alloc, typename... _Args>
     using __uses_alloc_t =
       __uses_alloc<uses_allocator<_Tp, _Alloc>::value, _Tp, _Alloc, _Args...>;
 
+  /// Make a tag type indicating how to use an allocator for construction.
   template<typename _Tp, typename _Alloc, typename... _Args>
     inline __uses_alloc_t<_Tp, _Alloc, _Args...>
     __use_alloc(const _Alloc& __a)
@@ -96,6 +102,34 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       __ret._M_a = &__a;
       return __ret;
     }
+
+  /// Check for required Allocator functions (only as an unevaluated operand).
+  template<typename _Alloc>
+    auto
+    __can_allocate(_Alloc* __a)
+    -> decltype(__a->deallocate(__a->allocate(1u), 1u));
+
+  /// Primary template handles all cases that don't look like Allocators.
+  template<typename _Alloc, typename = __void_t<>>
+    struct __is_allocator_impl
+    : false_type { };
+
+  /// Specialization recognizes types that define value_type and can allocate.
+  template<typename _Alloc>
+    struct __is_allocator_impl<_Alloc,
+			       __void_t<typename _Alloc::value_type,
+				        decltype(__can_allocate<_Alloc>(0))>>
+    : true_type { };
+
+  /// Detect whether a type might be an Allocator.
+  template<typename _Alloc>
+    struct __is_allocator : __is_allocator_impl<_Alloc>::type
+    { };
+
+  /// Alias for allocator_arg_t that is only valid if _Alloc is an Allocator.
+  template<typename _Alloc>
+    using __alloc_arg_t = typename enable_if<__is_allocator<_Alloc>::value,
+					     allocator_arg_t>::type;
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std

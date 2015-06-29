@@ -1,5 +1,15 @@
 2015-06-30  Jonathan Wakely  <jwakely@redhat.com>
 
+	* include/bits/uses_allocator.h (__uses_alloc_t, __use_alloc): Add
+	comments.
+	(__is_allocator): New trait.
+	(__alloc_arg_t): New SFINAE helper for detecting allocators.
+	* include/std/tuple (tuple): Replace allocator_arg_t with
+	__alloc_arg_t<_Alloc>.
+	* testsuite/20_util/tuple/cons/allocators.cc: Use a valid Allocator.
+	* testsuite/20_util/uses_allocator/cons_neg.cc: Likewise.
+	* testsuite/20_util/uses_allocator/construction.cc: Likewise.
+
 	* doc/Makefile.am (stamp-pdf-doxygen): Grep for LaTeX errors in log.
 	* doc/Makefile.in: Regenerate.
 

@@ -640,7 +640,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       // Allocator-extended constructors.
 
       template<typename _Alloc>
-	tuple(allocator_arg_t __tag, const _Alloc& __a)
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a)
 	: _Inherited(__tag, __a) { }
 
       template<typename _Alloc, typename _Dummy = void,
@@ -650,7 +650,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                  && _TCC<_Dummy>::template
                    _ImplicitlyConvertibleTuple<_Elements...>(),
                bool>::type=true>
-	tuple(allocator_arg_t __tag, const _Alloc& __a,
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      const _Elements&... __elements)
 	: _Inherited(__tag, __a, __elements...) { }
 
@@ -661,7 +661,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                  && !_TCC<_Dummy>::template
                    _ImplicitlyConvertibleTuple<_Elements...>(),
                bool>::type=false>
-	explicit tuple(allocator_arg_t __tag, const _Alloc& __a,
+	explicit tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
                        const _Elements&... __elements)
 	: _Inherited(__tag, __a, __elements...) { }
 
@@ -671,7 +671,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && _TMC<_UElements...>::template
                     _ImplicitlyMoveConvertibleTuple<_UElements...>(),
         bool>::type=true>
-	tuple(allocator_arg_t __tag, const _Alloc& __a,
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      _UElements&&... __elements)
 	: _Inherited(__tag, __a, std::forward<_UElements>(__elements)...)
        	{ }
@@ -682,17 +682,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && !_TMC<_UElements...>::template
                     _ImplicitlyMoveConvertibleTuple<_UElements...>(),
         bool>::type=false>
-	explicit tuple(allocator_arg_t __tag, const _Alloc& __a,
+	explicit tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      _UElements&&... __elements)
 	: _Inherited(__tag, __a, std::forward<_UElements>(__elements)...)
         { }
 
       template<typename _Alloc>
-	tuple(allocator_arg_t __tag, const _Alloc& __a, const tuple& __in)
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a, const tuple& __in)
 	: _Inherited(__tag, __a, static_cast<const _Inherited&>(__in)) { }
 
       template<typename _Alloc>
-	tuple(allocator_arg_t __tag, const _Alloc& __a, tuple&& __in)
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a, tuple&& __in)
 	: _Inherited(__tag, __a, static_cast<_Inherited&&>(__in)) { }
 
       template<typename _Alloc, typename... _UElements, typename
@@ -701,7 +701,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && _TMC<_UElements...>::template
                     _ImplicitlyConvertibleTuple<_UElements...>(),
         bool>::type=true>
-	tuple(allocator_arg_t __tag, const _Alloc& __a,
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      const tuple<_UElements...>& __in)
 	: _Inherited(__tag, __a,
 	             static_cast<const _Tuple_impl<0, _UElements...>&>(__in))
@@ -713,7 +713,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && !_TMC<_UElements...>::template
                     _ImplicitlyConvertibleTuple<_UElements...>(),
         bool>::type=false>
-	explicit tuple(allocator_arg_t __tag, const _Alloc& __a,
+	explicit tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      const tuple<_UElements...>& __in)
 	: _Inherited(__tag, __a,
 	             static_cast<const _Tuple_impl<0, _UElements...>&>(__in))
@@ -725,7 +725,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && _TMC<_UElements...>::template
                     _ImplicitlyMoveConvertibleTuple<_UElements...>(),
         bool>::type=true>
-	tuple(allocator_arg_t __tag, const _Alloc& __a,
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      tuple<_UElements...>&& __in)
 	: _Inherited(__tag, __a,
 	             static_cast<_Tuple_impl<0, _UElements...>&&>(__in))
@@ -737,7 +737,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && !_TMC<_UElements...>::template
                     _ImplicitlyMoveConvertibleTuple<_UElements...>(),
         bool>::type=false>
-	explicit tuple(allocator_arg_t __tag, const _Alloc& __a,
+	explicit tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      tuple<_UElements...>&& __in)
 	: _Inherited(__tag, __a,
 	             static_cast<_Tuple_impl<0, _UElements...>&&>(__in))
@@ -936,7 +936,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       // Allocator-extended constructors.
 
       template<typename _Alloc>
-	tuple(allocator_arg_t __tag, const _Alloc& __a)
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a)
 	: _Inherited(__tag, __a) { }
 
       template<typename _Alloc, typename _Dummy = void,
@@ -947,7 +947,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                    _ImplicitlyConvertibleTuple<_T1, _T2>(),
                bool>::type=true>
 
-	tuple(allocator_arg_t __tag, const _Alloc& __a,
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      const _T1& __a1, const _T2& __a2)
 	: _Inherited(__tag, __a, __a1, __a2) { }
 
@@ -959,7 +959,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                    _ImplicitlyConvertibleTuple<_T1, _T2>(),
                bool>::type=false>
 
-	explicit tuple(allocator_arg_t __tag, const _Alloc& __a,
+	explicit tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      const _T1& __a1, const _T2& __a2)
 	: _Inherited(__tag, __a, __a1, __a2) { }
 
@@ -969,7 +969,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && _TMC::template
                     _ImplicitlyMoveConvertibleTuple<_U1, _U2>(),
 	bool>::type = true>
-	tuple(allocator_arg_t __tag, const _Alloc& __a, _U1&& __a1, _U2&& __a2)
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a, _U1&& __a1,
+	      _U2&& __a2)
 	: _Inherited(__tag, __a, std::forward<_U1>(__a1),
 	             std::forward<_U2>(__a2)) { }
 
@@ -979,17 +980,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && !_TMC::template
                     _ImplicitlyMoveConvertibleTuple<_U1, _U2>(),
 	bool>::type = false>
-	explicit tuple(allocator_arg_t __tag, const _Alloc& __a,
+	explicit tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
                        _U1&& __a1, _U2&& __a2)
 	: _Inherited(__tag, __a, std::forward<_U1>(__a1),
 	             std::forward<_U2>(__a2)) { }
 
       template<typename _Alloc>
-	tuple(allocator_arg_t __tag, const _Alloc& __a, const tuple& __in)
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a, const tuple& __in)
 	: _Inherited(__tag, __a, static_cast<const _Inherited&>(__in)) { }
 
       template<typename _Alloc>
-	tuple(allocator_arg_t __tag, const _Alloc& __a, tuple&& __in)
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a, tuple&& __in)
 	: _Inherited(__tag, __a, static_cast<_Inherited&&>(__in)) { }
 
       template<typename _Alloc, typename _U1, typename _U2, typename
@@ -998,7 +999,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && _TMC::template
                     _ImplicitlyConvertibleTuple<_U1, _U2>(),
 	bool>::type = true>
-	tuple(allocator_arg_t __tag, const _Alloc& __a,
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      const tuple<_U1, _U2>& __in)
 	: _Inherited(__tag, __a,
 	             static_cast<const _Tuple_impl<0, _U1, _U2>&>(__in))
@@ -1010,7 +1011,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && !_TMC::template
                     _ImplicitlyConvertibleTuple<_U1, _U2>(),
 	bool>::type = false>
-	explicit tuple(allocator_arg_t __tag, const _Alloc& __a,
+	explicit tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      const tuple<_U1, _U2>& __in)
 	: _Inherited(__tag, __a,
 	             static_cast<const _Tuple_impl<0, _U1, _U2>&>(__in))
@@ -1022,7 +1023,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && _TMC::template
                     _ImplicitlyMoveConvertibleTuple<_U1, _U2>(),
 	bool>::type = true>
-	tuple(allocator_arg_t __tag, const _Alloc& __a, tuple<_U1, _U2>&& __in)
+	tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a, tuple<_U1, _U2>&& __in)
 	: _Inherited(__tag, __a, static_cast<_Tuple_impl<0, _U1, _U2>&&>(__in))
 	{ }
 
@@ -1032,7 +1033,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && !_TMC::template
                     _ImplicitlyMoveConvertibleTuple<_U1, _U2>(),
 	bool>::type = false>
-	explicit tuple(allocator_arg_t __tag, const _Alloc& __a,
+	explicit tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
                        tuple<_U1, _U2>&& __in)
 	: _Inherited(__tag, __a, static_cast<_Tuple_impl<0, _U1, _U2>&&>(__in))
 	{ }
@@ -1043,7 +1044,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && _TMC::template
                     _ImplicitlyConvertibleTuple<_U1, _U2>(),
 	bool>::type = true>
-        tuple(allocator_arg_t __tag, const _Alloc& __a,
+        tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      const pair<_U1, _U2>& __in)
 	: _Inherited(__tag, __a, __in.first, __in.second) { }
 
@@ -1053,7 +1054,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && !_TMC::template
                     _ImplicitlyConvertibleTuple<_U1, _U2>(),
 	bool>::type = false>
-        explicit tuple(allocator_arg_t __tag, const _Alloc& __a,
+        explicit tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
 	      const pair<_U1, _U2>& __in)
 	: _Inherited(__tag, __a, __in.first, __in.second) { }
 
@@ -1063,7 +1064,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && _TMC::template
                     _ImplicitlyMoveConvertibleTuple<_U1, _U2>(),
 	bool>::type = true>
-        tuple(allocator_arg_t __tag, const _Alloc& __a, pair<_U1, _U2>&& __in)
+        tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
+	      pair<_U1, _U2>&& __in)
 	: _Inherited(__tag, __a, std::forward<_U1>(__in.first),
 		     std::forward<_U2>(__in.second)) { }
 
@@ -1073,7 +1075,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                   && !_TMC::template
                     _ImplicitlyMoveConvertibleTuple<_U1, _U2>(),
 	bool>::type = false>
-        explicit tuple(allocator_arg_t __tag, const _Alloc& __a,
+        explicit tuple(__alloc_arg_t<_Alloc> __tag, const _Alloc& __a,
                        pair<_U1, _U2>&& __in)
 	: _Inherited(__tag, __a, std::forward<_U1>(__in.first),
 		     std::forward<_U2>(__in.second)) { }

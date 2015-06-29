@@ -22,8 +22,9 @@
 
 #include <memory>
 #include <tuple>
+#include <testsuite_allocator.h>
 
-struct MyAlloc { };
+using MyAlloc = __gnu_test::SimpleAllocator<int>;
 
 struct Type
 {
