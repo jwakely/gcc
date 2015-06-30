@@ -34,6 +34,7 @@
 
 #include <bits/memoryfwd.h>
 #include <bits/ptr_traits.h>
+#include <bits/uses_allocator.h>
 #include <ext/numeric_traits.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
@@ -75,15 +76,26 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _Alloc, typename _Tp>
     using __alloc_rebind = typename __alloctr_rebind<_Alloc, _Tp>::__type;
 
+  template<typename _Alloc, bool = __is_allocator<_Alloc>::value>
+    struct __allocator_traits_base
+    {
+      /// The allocator type
+      typedef _Alloc allocator_type;
+    };
+
+  template<typename _Alloc>
+    struct __allocator_traits_base<_Alloc, false>
+    { };
+
   /**
    * @brief  Uniform interface to all allocator types.
    * @ingroup allocators
   */
   template<typename _Alloc>
-    struct allocator_traits
+    struct allocator_traits : __allocator_traits_base<_Alloc>
     {
-      /// The allocator type
-      typedef _Alloc allocator_type;
+      // The allocator_type typedef is conditionally defined in the base class.
+
       /// The allocated type
       typedef typename _Alloc::value_type value_type;
 
