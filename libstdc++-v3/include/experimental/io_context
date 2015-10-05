@@ -1,0 +1,322 @@
+// <experimental/io_service> -*- C++ -*-
+
+// Copyright (C) 2015 Free Software Foundation, Inc.
+//
+// This file is part of the GNU ISO C++ Library.  This library is free
+// software; you can redistribute it and/or modify it under the
+// terms of the GNU General Public License as published by the
+// Free Software Foundation; either version 3, or (at your option)
+// any later version.
+
+// This library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// Under Section 7 of GPL version 3, you are granted additional
+// permissions described in the GCC Runtime Library Exception, version
+// 3.1, as published by the Free Software Foundation.
+
+// You should have received a copy of the GNU General Public License and
+// a copy of the GCC Runtime Library Exception along with this program;
+// see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
+// <http://www.gnu.org/licenses/>.
+
+/** @file experimental/io_service
+ *  This is a TS C++ Library header.
+ */
+
+#ifndef _GLIBCXX_EXPERIMENTAL_IO_SERVICE
+#define _GLIBCXX_EXPERIMENTAL_IO_SERVICE 1
+
+#pragma GCC system_header
+
+#if __cplusplus < 201402L
+# include <bits/c++14_warning.h>
+#else
+
+#include <atomic>
+#include <chrono>
+#include <experimental/netfwd>
+#include <experimental/executor> // TODO move execution_service to new header
+
+namespace std _GLIBCXX_VISIBILITY(default)
+{
+namespace experimental
+{
+namespace net
+{
+inline namespace v1
+{
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
+  /**
+   * @ingroup networking
+   * @{
+   */
+
+  /// An ExecutionContext for I/O operations.
+  class io_context : public execution_context
+  {
+  public:
+    // types:
+
+    class executor_type;
+
+    using count_type =  size_t;
+
+    // construct / copy / destroy:
+
+    io_context();  // TODO
+
+    explicit
+    io_context(int __concurrency_hint);  // TODO
+
+    io_context(const io_context&) = delete;
+    io_context& operator=(const io_context&) = delete;
+
+    // io_context operations:
+
+    executor_type get_executor() noexcept { return executor_type{*this}; }
+
+    // TODO need internal _M_run_one, _M_run_one_until, _M_poll_one functions
+    // that add current thread to call stack, modify outstanding work etc.
+
+    count_type
+    run()
+    {
+      __glibcxx_assert(this_thread::get_id() != _M_running_in_thread);
+      count_type __n = 0;
+      while (run_one())
+	if (__n != numeric_limits<count_type>::max())
+	  ++__n;
+      return __n;
+    }
+
+    template<typename _Rep, typename _Period>
+      count_type
+      run_for(const chrono::duration<_Rep, _Period>& __rel_time)
+      { return run_until(chrono::steady_clock::now() + __rel_time); }
+
+    template<typename _Clock, typename _Duration>
+      count_type
+      run_until(const chrono::time_point<_Clock, _Duration>& __abs_time)
+      {
+	count_type __n = 0;
+	while (run_one_until(__abs_time))
+	  if (__n != numeric_limits<count_type>::max())
+	    ++__n;
+	return __n;
+      }
+
+    count_type
+    run_one()
+    {
+      __glibcxx_assert(this_thread::get_id() != _M_running_in_thread);
+      if (_M_work_count == 0)
+	{
+	  stop();
+	  return 0;
+	}
+      while (true)
+	{
+	  function<void()> __f;
+	  {
+	    unique_lock<mutex> __lock(_M_mtx);
+	    _M_cv.wait(__lock, []{ return !_M_stopped && !_M_tasks.empty(); });
+	    if (_M_stopped)
+	      return 0;
+	    __f = std::move(_M_tasks.front());
+	    _M_tasks.pop();
+	  }
+	  __f();
+	  return 1;
+	}
+    }
+
+    template<typename _Rep, typename _Period>
+      count_type
+      run_one_for(const chrono::duration<_Rep, _Period>& __rel_time)
+      { return run_one_until(chrono::steady_clock::now() + __rel_time); }
+
+    template<typename _Clock, typename _Duration>
+      count_type
+      run_one_until(const chrono::time_point<_Clock, _Duration>& __abs_time)
+      {
+	if (_M_work_count == 0)
+	  {
+	    stop();
+	    return 0;
+	  }
+	while (true)
+	  {
+	    function<void()> __f;
+	    {
+	      unique_lock<mutex> __lock(_M_mtx);
+	      _M_cv.wait_until(__lock,
+			       []{ return !_M_stopped && !_M_tasks.empty(); });
+	      if (_M_stopped)
+		return 0;
+	      __f = std::move(_M_tasks.front());
+	      _M_tasks.pop();
+	    }
+	    __f();
+	    return 1;
+	  }
+      }
+
+    count_type
+    poll()
+    {
+      count_type __n = 0;
+      while (poll_one())
+	if (__n != numeric_limits<count_type>::max())
+	  ++__n;
+      return __n;
+    }
+
+    count_type
+    poll_one()
+    {
+      if (_M_work_count == 0)
+	{
+	  stop();
+	  return 0;
+	}
+      function<void()> __f;
+      {
+	unique_lock<mutex> __lock(_M_mtx);
+	if (_M_tasks.empty())
+	  return 0;
+	__f = std::move(_M_tasks.front());
+	_M_tasks.pop();
+      }
+      __f();
+      return 1;
+    }
+
+    void stop()
+    {
+      lock_guard<mutex> __lock(_M_mtx);
+      _M_stopped = true;
+      _M_cv.notify_all();
+    }
+
+    bool stopped() const noexcept
+    {
+      lock_guard<mutex> __lock(_M_mtx);
+      return _M_stopped;
+    }
+
+    void restart()
+    {
+      _M_stopped = false;
+    }
+
+  private:
+
+    count_type
+    _M_outstanding_work
+    {
+      count_type __count = _M_work_count;
+      {
+	lock_guard<mutex> __lock(_M_mtx);
+	__count += _M_tasks.size();
+      }
+      // TODO __count += no. running tasks
+      return __count;
+    }
+
+    std::atomic<count_type>	_M_work_count;
+    mutex			_M_mtx;
+    condition_variable		_M_cv;
+    queue<function<void()>	_M_tasks;
+    bool			_M_stopped = false;
+    // TODO need priority_queue for timers?
+  };
+
+  /// An executor for an io_context.
+  class io_context::executor_type
+  {
+  public:
+    // construct / copy / destroy:
+
+    executor_type(const executor_type& __other) noexcept;
+    executor_type(executor_type&& __other) noexcept;
+
+    executor_type& operator=(const executor_type& __other) noexcept;
+    executor_type& operator=(executor_type&& __other) noexcept;
+
+    // executor operations:
+
+    bool running_in_this_thread() const noexcept; // TODO
+
+    io_context& context() noexcept { return *_M_ctx; }
+
+    void on_work_started() noexcept { ++_M_ctx._M_work_count; }
+    void on_work_finished() noexcept { --_M_ctx._M_work_count; }
+
+    template<typename _Func, typename _ProtoAllocator>
+      void
+      dispatch(_Func&& __f, const _ProtoAllocator& __a)
+      {
+	if (running_in_this_thread())
+	  decay_t<_Func>{std::forward<_Func>(__f)}();
+	else
+	  post(std::forward<_Func>(__f), __a);
+      }
+
+    template<typename _Func, typename _ProtoAllocator>
+      void
+      post(_Func&& __f, const _ProtoAllocator& __a)
+      {
+	lock_guard<mutex> __lock(_M_ctx->_M_mtx);
+	_M_ctx->_M_tasks.push({allocator_arg, __a, std::forward<_Func>(__f)});
+	_M_ctx->_M_cv.notify_one();
+      }
+
+    template<typename _Func, typename _ProtoAllocator>
+      void
+      defer(_Func&& __f, const _ProtoAllocator& __a)
+      { post(std::forward<_Func>(__f), __a); }
+
+  private:
+    friend io_context;
+
+    explicit
+    executor_type(io_context& __ctx) : _M_ctx(std::addressof(__ctx)) { }
+
+    io_context* _M_ctx;
+  };
+
+  inline bool
+  operator==(const io_context::executor_type& __a,
+	     const io_context::executor_type& __b) noexcept
+  { return addressof(__a.context()) == addressof(__b.context()); }
+
+  inline bool
+  operator!=(const io_context::executor_type& __a,
+	     const io_context::executor_type& __b) noexcept
+  { return !(__a == __b); }
+
+  template<> struct is_executor<io_context::executor_type> : true_type {};
+
+  /// @}
+
+_GLIBCXX_END_NAMESPACE_VERSION
+} // namespace v1
+} // namespace net
+} // namespace experimental
+
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
+  template<typename _Alloc>
+    struct uses_allocator<experimental::net::executor, _Alloc>
+    : true_type {};
+
+_GLIBCXX_END_NAMESPACE_VERSION
+} // namespace std
+
+#endif // C++14
+
+#endif // _GLIBCXX_EXPERIMENTAL_IO_SERVICE

@@ -1,4 +1,4 @@
-// <experimental/networking> -*- C++ -*-
+// <experimental/net> -*- C++ -*-
 
 // Copyright (C) 2015 Free Software Foundation, Inc.
 //
@@ -22,12 +22,12 @@
 // see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 // <http://www.gnu.org/licenses/>.
 
-/** @file experimental/networking
+/** @file experimental/net
  *  This is a TS C++ Library header.
  */
 
-#ifndef _GLIBCXX_EXPERIMENTAL_NETWORKING
-#define _GLIBCXX_EXPERIMENTAL_NETWORKING 1
+#ifndef _GLIBCXX_EXPERIMENTAL_NET
+#define _GLIBCXX_EXPERIMENTAL_NET
 
 #pragma GCC system_header
 
@@ -44,4 +44,4 @@
 
 #endif // C++14
 
-#endif // _GLIBCXX_EXPERIMENTAL_FILESYSTEM
+#endif // _GLIBCXX_EXPERIMENTAL_NET

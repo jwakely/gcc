@@ -22,7 +22,7 @@
 // see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 // <http://www.gnu.org/licenses/>.
 
-/** @file experimental/networking
+/** @file experimental/netfwd
  *  This is a TS C++ Library header.
  */
 
@@ -41,7 +41,9 @@ namespace std _GLIBCXX_VISIBILITY(default)
 {
 namespace experimental
 {
-inline namespace network_v1
+namespace net
+{
+inline namespace v1
 {
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
@@ -52,9 +54,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   class execution_context;
   template<typename _Tp, typename _Executor>
-    class executor_wrapper;
+    class executor_binder;
   template<typename _Executor>
-    class executor_work;
+    class executor_work_guard;
   class system_executor;
   class executor;
   template<typename _Executor>
@@ -109,11 +111,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     template<typename _InternetProtocol>
       class basic_endpoint;
     template<typename _InternetProtocol>
-      class basic_resolver_query;
-    template<typename _InternetProtocol>
       class basic_resolver_entry;
     template<typename _InternetProtocol>
-      class basic_resolver_iterator;
+      class basic_resolver_results;
     template<typename _InternetProtocol>
       class basic_resolver;
     class tcp;
@@ -124,7 +124,8 @@ _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace ip
 
 
-} // namespace network_v1
+} // namespace v1
+} // namespace net
 } // namespace experimental
 } // namespace std
 
