@@ -46,6 +46,7 @@
 #include <utility>
 #include <experimental/netfwd>
 #include <bits/unique_ptr.h>
+#include <experimental/bits/net.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
