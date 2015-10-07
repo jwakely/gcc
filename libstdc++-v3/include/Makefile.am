@@ -671,6 +671,7 @@ experimental_headers = \
 	${experimental_srcdir}/functional \
 	${experimental_srcdir}/iterator \
 	${experimental_srcdir}/io_context \
+	${experimental_srcdir}/internet \
 	${experimental_srcdir}/list \
 	${experimental_srcdir}/map \
 	${experimental_srcdir}/memory \
@@ -684,6 +685,7 @@ experimental_headers = \
 	${experimental_srcdir}/ratio \
 	${experimental_srcdir}/regex \
 	${experimental_srcdir}/set \
+	${experimental_srcdir}/socket \
 	${experimental_srcdir}/string \
 	${experimental_srcdir}/string_view \
 	${experimental_srcdir}/system_error \

@@ -1,4 +1,4 @@
-// <experimental/net> -*- C++ -*-
+// <experimental/internet> -*- C++ -*-
 
 // Copyright (C) 2015 Free Software Foundation, Inc.
 //
@@ -22,12 +22,12 @@
 // see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 // <http://www.gnu.org/licenses/>.
 
-/** @file experimental/net
+/** @file experimental/socket
  *  This is a TS C++ Library header.
  */
 
-#ifndef _GLIBCXX_EXPERIMENTAL_NET
-#define _GLIBCXX_EXPERIMENTAL_NET
+#ifndef _GLIBCXX_EXPERIMENTAL_INTERNET
+#define _GLIBCXX_EXPERIMENTAL_INTERNET
 
 #pragma GCC system_header
 
@@ -35,13 +35,31 @@
 # include <bits/c++14_warning.h>
 #else
 
-#include <experimental/executor>
-#include <experimental/io_context>
-#include <experimental/timer>
-#include <experimental/buffer>
-#include <experimental/socket>
-#include <experimental/internet>
+#include <experimental/netfwd>
+
+namespace std _GLIBCXX_VISIBILITY(default)
+{
+namespace experimental
+{
+namespace net
+{
+inline namespace v1
+{
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
+
+  /**
+   * @ingroup networking
+   * @{
+   */
+
+  // @}
+
+_GLIBCXX_END_NAMESPACE_VERSION
+} // namespace v1
+} // namespace net
+} // namespace experimental
+} // namespace std
 
 #endif // C++14
 
-#endif // _GLIBCXX_EXPERIMENTAL_NET
+#endif // _GLIBCXX_EXPERIMENTAL_INTERNET
