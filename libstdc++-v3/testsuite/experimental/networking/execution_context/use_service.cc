@@ -20,14 +20,14 @@
 #include <experimental/executor>
 #include <testsuite_hooks.h>
 
-using std::experimental::execution_context;
-using std::experimental::use_service;
+using std::experimental::net::execution_context;
+using std::experimental::net::use_service;
 
 struct service1 : execution_context::service
 {
   using key_type = service1;
   service1(execution_context& c) : service(c) { }
-  void shutdown() { }
+  void shutdown() noexcept { }
 };
 
 struct key2 : execution_context::service
@@ -39,7 +39,7 @@ struct service2 : key2
 {
   using key_type = key2;
   service2(execution_context& c) : key2(c) { }
-  void shutdown() { }
+  void shutdown() noexcept { }
 };
 
 struct service3 : service1
