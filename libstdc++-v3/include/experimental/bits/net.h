@@ -57,6 +57,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _CompletionToken, typename _Signature, typename>
     class async_result;
 
+  // A type denoted by DEDUCED in the TS.
   template<typename _CompletionToken, typename _Signature>
     using __deduced_t = typename
       async_result<decay_t<_CompletionToken>, _Signature, void>::return_type;

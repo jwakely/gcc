@@ -395,7 +395,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	completion_handler_type>;
 
     public:
-      // XXX this casts lvalue to rvalue when !is_same
       explicit
       async_completion(_CompletionToken& __t)
       : completion_handler(std::forward<__handler_type>(__t)),
