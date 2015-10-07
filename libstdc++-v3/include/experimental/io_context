@@ -77,7 +77,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     // io_context operations:
 
-    executor_type get_executor() noexcept { return executor_type{*this}; }
+    executor_type get_executor() noexcept;
 
     // TODO need internal _M_run_one, _M_run_one_until, _M_poll_one functions
     // that add current thread to call stack, modify outstanding work etc.
@@ -123,7 +123,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  function<void()> __f;
 	  {
 	    unique_lock<mutex> __lock(_M_mtx);
-	    _M_cv.wait(__lock, []{ return !_M_stopped && !_M_tasks.empty(); });
+	    _M_cv.wait(__lock, [this] {
+		return !_M_stopped && !_M_tasks.empty();
+	    });
 	    if (_M_stopped)
 	      return 0;
 	    __f = std::move(_M_tasks.front());
@@ -153,8 +155,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    function<void()> __f;
 	    {
 	      unique_lock<mutex> __lock(_M_mtx);
-	      _M_cv.wait_until(__lock,
-			       []{ return !_M_stopped && !_M_tasks.empty(); });
+	      _M_cv.wait_until(__lock, [this] {
+		  return !_M_stopped && !_M_tasks.empty();
+	      });
 	      if (_M_stopped)
 		return 0;
 	      __f = std::move(_M_tasks.front());
@@ -216,7 +219,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   private:
 
     count_type
-    _M_outstanding_work
+    _M_outstanding_work() const
     {
       count_type __count = _M_work_count;
       {
@@ -228,9 +231,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     }
 
     std::atomic<count_type>	_M_work_count;
-    mutex			_M_mtx;
+    mutable mutex		_M_mtx;
     condition_variable		_M_cv;
-    queue<function<void()>	_M_tasks;
+    queue<function<void()>>	_M_tasks;
     bool			_M_stopped = false;
     // TODO need priority_queue for timers?
   };
@@ -251,10 +254,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     bool running_in_this_thread() const noexcept; // TODO
 
-    io_context& context() noexcept { return *_M_ctx; }
+    // XXX const? https://github.com/chriskohlhoff/asio-tr2/issues/201
+    io_context& context() const noexcept { return *_M_ctx; }
 
-    void on_work_started() noexcept { ++_M_ctx._M_work_count; }
-    void on_work_finished() noexcept { --_M_ctx._M_work_count; }
+    void on_work_started() noexcept { ++_M_ctx->_M_work_count; }
+    void on_work_finished() noexcept { --_M_ctx->_M_work_count; }
 
     template<typename _Func, typename _ProtoAllocator>
       void
@@ -289,10 +293,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     io_context* _M_ctx;
   };
 
+  inline io_context::executor_type
+  io_context::get_executor() noexcept { return executor_type{*this}; }
+
   inline bool
   operator==(const io_context::executor_type& __a,
 	     const io_context::executor_type& __b) noexcept
-  { return addressof(__a.context()) == addressof(__b.context()); }
+  { return std::addressof(__a.context()) == std::addressof(__b.context()); }
 
   inline bool
   operator!=(const io_context::executor_type& __a,
@@ -307,14 +314,6 @@ _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace v1
 } // namespace net
 } // namespace experimental
-
-_GLIBCXX_BEGIN_NAMESPACE_VERSION
-
-  template<typename _Alloc>
-    struct uses_allocator<experimental::net::executor, _Alloc>
-    : true_type {};
-
-_GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 
 #endif // C++14

@@ -36,7 +36,11 @@
 #else
 
 #include <chrono>
+#include <system_error>
+#include <thread>
 #include <experimental/netfwd>
+#include <experimental/io_context>
+#include <experimental/bits/net.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -72,7 +76,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       }
     };
 
-  template<typename _Clock, typename _WaitTraits = wait_traits<_Clock>>
+  template<typename _Clock, typename _WaitTraits>
     class basic_waitable_timer
     {
     public:
@@ -82,7 +86,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       typedef _Clock clock_type;
       typedef typename clock_type::duration duration;
       typedef typename clock_type::time_point time_point;
-      typedef WaitTraits traits_type;
+      typedef _WaitTraits traits_type;
 
       // construct / copy / destroy:
 
@@ -95,7 +99,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       : _M_ex(__ctx.get_executor()), _M_expiry(__t)
       { }
 
-      basic_waitable_timer(io_context& __ctx, const duration& __d);
+      basic_waitable_timer(io_context& __ctx, const duration& __d)
       : _M_ex(__ctx.get_executor()), _M_expiry(_Clock::now() + __d)
       { }
 
@@ -144,10 +148,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       void wait(error_code& __ec);
 
       template<typename _CompletionToken>
-	__deduced<_CompletionToken, void(error_code)>
+	__deduced_t<_CompletionToken, void(error_code)>
 	async_wait(_CompletionToken&& __token);
 
     private:
+
       time_point _M_expiry;
       executor_type _M_ex;
     };
@@ -157,20 +162,53 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   typedef basic_waitable_timer<chrono::high_resolution_clock>
     high_resolution_timer;
 
+  template<typename _Clock, typename _WaitTraits>
+    size_t
+    basic_waitable_timer<_Clock, _WaitTraits>::cancel()
+    {
+      size_t __cancelled = 0;
+      for (auto& __x : _M_waiters)
+	if (__x == 0 && ++__x == 1)
+	  ++__cancelled;
+      return __cancelled;
+    }
+
+  template<typename _Clock, typename _WaitTraits>
+    size_t
+    basic_waitable_timer<_Clock, _WaitTraits>::cancel_one()
+    {
+      for (auto& __x : _M_waiters)
+	if (__x == 0 && ++__x == 1)
+	  return 1;
+      return 0;
+    }
+
+  template<typename _Clock, typename _WaitTraits>
+    void
+    basic_waitable_timer<_Clock, _WaitTraits>::wait()
+    {
+      _M_ex.dispatch([this] {
+	  while (clock_type::now() < _M_expiry)
+	    this_thread::sleep_for(traits_type::to_wait_duration(_M_expiry));
+      }, allocator<void>{});
+    }
+
+  template<typename _Clock, typename _WaitTraits>
+    void
+    basic_waitable_timer<_Clock, _WaitTraits>::wait(error_code&)
+    {
+      _M_ex.dispatch([this] {
+	  while (clock_type::now() < _M_expiry)
+	    this_thread::sleep_for(traits_type::to_wait_duration(_M_expiry));
+      }, _M_waiters.get_allocator());
+    }
+
   /// @}
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace v1
 } // namespace net
 } // namespace experimental
-
-_GLIBCXX_BEGIN_NAMESPACE_VERSION
-
-  template<typename _Alloc>
-    struct uses_allocator<experimental::net::executor, _Alloc>
-    : true_type {};
-
-_GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 
 #endif // C++14
