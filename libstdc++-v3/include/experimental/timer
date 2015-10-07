@@ -152,9 +152,42 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	async_wait(_CompletionToken&& __token);
 
     private:
+      struct __waiter
+      {
+	explicit
+	__waiter(atomic<int>& __flag) : _M_flag(&__flag) { }
+
+	__waiter(__waiter&& __other) : _M_flag(__other._M_flag)
+	{ __other._M_flag = nullptr; }
+
+	~__waiter() { if (_M_flag) _M_finished(); }
+
+	void _M_finished() { *_M_flag = 2; _M_flag = nullptr; }
+
+	bool _M_cancelled() const { return *_M_flag == 1; }
+
+      private:
+	atomic<int>* _M_flag;
+      };
+
+      __waiter
+      _M_new_waiter()
+      {
+	for (auto __it = _M_waiters.begin(), __end = _M_waiters.end();
+	    __it != __end; ++__it)
+	  if (*__it > 1)
+	    {
+	      _M_waiters.splice(_M_waiters.end(), _M_waiters, __it);
+	      *__it = 0;
+	      return __waiter(*__it);
+	    }
+	_M_waiters.emplace_back(0);
+	return __waiter(_M_waiters.back());
+      }
 
       time_point _M_expiry;
       executor_type _M_ex;
+      list<atomic<int>> _M_waiters;
     };
 
   typedef basic_waitable_timer<chrono::system_clock> system_timer;
@@ -201,6 +234,41 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  while (clock_type::now() < _M_expiry)
 	    this_thread::sleep_for(traits_type::to_wait_duration(_M_expiry));
       }, _M_waiters.get_allocator());
+    }
+
+  template<typename _Clock, typename _WaitTraits>
+  template<typename _CompletionToken>
+    __deduced_t<_CompletionToken, void(error_code)>
+    basic_waitable_timer<_Clock, _WaitTraits>::
+    async_wait(_CompletionToken&& __token)
+    {
+      using _Signature = void(error_code);
+
+      auto __work1 = net::make_work_guard(_M_ex);
+
+      async_completion<_CompletionToken, _Signature> __init(__token);
+
+      auto __work2 = net::get_associated_executor(__init.completion_handler,
+						  _M_ex);
+
+      _M_ex.post([__status = _M_new_waiter(),
+		  __h = std::move(__init.completion_handler),
+                  __expiry = _M_expiry] {
+	  error_code __ec;
+	  auto __now = clock_type::now();
+	  while (!__status._M_cancelled() && __now < __expiry)
+	    {
+	      // TODO query io_context for next expiry to find __e
+	      auto __e = std::min(__now + duration(5), __expiry);
+	      this_thread::sleep_for(traits_type::to_wait_duration(__e));
+	      __now = clock_type::now();
+	    }
+	  if (__status._M_cancelled())
+	    __ec = std::make_error_code(errc::operation_canceled);
+	  __status._M_finished();
+	  __h(__ec);
+      }, _M_waiters.get_allocator());
+      return __init.result.get();
     }
 
   /// @}
