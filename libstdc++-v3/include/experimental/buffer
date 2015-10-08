@@ -58,15 +58,20 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    * @{
    */
 
-  enum class stream_errc {
+  enum class stream_errc {    // TODO decide values
     eof = 1,
     not_found = 2
   };
 
-  const error_category& stream_category() noexcept;
+  const error_category& stream_category() noexcept; // TODO
 
-  error_code make_error_code(stream_errc e) noexcept;
-  error_condition make_error_condition(stream_errc e) noexcept;
+  inline error_code
+  make_error_code(stream_errc __e) noexcept
+  { return error_code(static_cast<int>(__e), stream_category()); }
+
+  inline error_condition
+  make_error_condition(stream_errc __e) noexcept
+  { return error_condition(static_cast<int>(__e), stream_category()); }
 
   class mutable_buffer
   {
