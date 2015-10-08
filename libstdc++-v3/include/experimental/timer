@@ -119,11 +119,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       basic_waitable_timer&
       operator=(basic_waitable_timer&& __rhs)
       {
+	if (this == std::addressof(__rhs))
+	  return *this;
 	cancel();
 	_M_ex = std::move(__rhs._M_ex);
 	_M_expiry = __rhs._M_expiry;
 	__rhs._M_expiry = time_point{};
-	__rhs.cancel();
+	return *this;
       }
 
       // basic_waitable_timer operations:
