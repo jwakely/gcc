@@ -108,7 +108,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       basic_waitable_timer(basic_waitable_timer&& __rhs)
       : _M_ex(std::move(__rhs._M_ex)), _M_expiry(__rhs._M_expiry)
       {
-	__rhs._M_expiry() = time_point{};
+	_M_waiters.swap(__rhs._M_waiters);
+	__rhs._M_expiry = time_point{};
 	__rhs.cancel();
       }
 
@@ -125,6 +126,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	_M_ex = std::move(__rhs._M_ex);
 	_M_expiry = __rhs._M_expiry;
 	__rhs._M_expiry = time_point{};
+	_M_waiters->splice(_M_waiters->begin(), *__rhs._M_waiters);
 	return *this;
       }
 
@@ -157,10 +159,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       struct __waiter
       {
 	explicit
-	__waiter(atomic<int>& __flag) : _M_flag(&__flag) { }
+	__waiter(shared_ptr<atomic_int> __flag) : _M_flag(std::move(__flag))
+	{ }
 
-	__waiter(__waiter&& __other) : _M_flag(__other._M_flag)
-	{ __other._M_flag = nullptr; }
+	__waiter(__waiter&& __other) noexcept
+	: _M_flag(std::move(__other._M_flag))
+	{ }
 
 	~__waiter() { if (_M_flag) _M_finished(); }
 
@@ -169,27 +173,27 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	bool _M_cancelled() const { return *_M_flag == 1; }
 
       private:
-	atomic<int>* _M_flag;
+	shared_ptr<atomic_int> _M_flag;
       };
 
       __waiter
       _M_new_waiter()
       {
-	for (auto __it = _M_waiters.begin(), __end = _M_waiters.end();
+	for (auto __it = _M_waiters->begin(), __end = _M_waiters->end();
 	    __it != __end; ++__it)
 	  if (*__it > 1)
 	    {
-	      _M_waiters.splice(_M_waiters.end(), _M_waiters, __it);
+	      _M_waiters->splice(_M_waiters->end(), *_M_waiters, __it);
 	      *__it = 0;
-	      return __waiter(*__it);
+	      return __waiter( { _M_waiters, &*__it } );
 	    }
-	_M_waiters.emplace_back(0);
-	return __waiter(_M_waiters.back());
+	_M_waiters->emplace_back(0);
+	return __waiter( { _M_waiters, &_M_waiters->back() } );
       }
 
       time_point _M_expiry;
       executor_type _M_ex;
-      list<atomic<int>> _M_waiters;
+      shared_ptr<list<atomic_int>> _M_waiters{make_shared<list<atomic_int>>()};
     };
 
   typedef basic_waitable_timer<chrono::system_clock> system_timer;
@@ -202,7 +206,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     basic_waitable_timer<_Clock, _WaitTraits>::cancel()
     {
       size_t __cancelled = 0;
-      for (auto& __x : _M_waiters)
+      for (auto& __x : *_M_waiters)
 	if (__x == 0 && ++__x == 1)
 	  ++__cancelled;
       return __cancelled;
@@ -212,7 +216,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     size_t
     basic_waitable_timer<_Clock, _WaitTraits>::cancel_one()
     {
-      for (auto& __x : _M_waiters)
+      for (auto& __x : *_M_waiters)
 	if (__x == 0 && ++__x == 1)
 	  return 1;
       return 0;
@@ -235,7 +239,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       _M_ex.dispatch([this] {
 	  while (clock_type::now() < _M_expiry)
 	    this_thread::sleep_for(traits_type::to_wait_duration(_M_expiry));
-      }, _M_waiters.get_allocator());
+      }, _M_waiters->get_allocator());
     }
 
   template<typename _Clock, typename _WaitTraits>
@@ -255,7 +259,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       _M_ex.post([__status = _M_new_waiter(),
 		  __h = std::move(__init.completion_handler),
-                  __expiry = _M_expiry] {
+                  __expiry = _M_expiry]() mutable {
 	  error_code __ec;
 	  auto __now = clock_type::now();
 	  while (!__status._M_cancelled() && __now < __expiry)
@@ -269,7 +273,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    __ec = std::make_error_code(errc::operation_canceled);
 	  __status._M_finished();
 	  __h(__ec);
-      }, _M_waiters.get_allocator());
+      }, _M_waiters->get_allocator());
       return __init.result.get();
     }
 
