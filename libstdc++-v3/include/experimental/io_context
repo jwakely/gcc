@@ -37,6 +37,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <thread>
 #include <experimental/netfwd>
 #include <experimental/executor> // TODO move execution_service to new header
 
@@ -275,7 +276,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       post(_Func&& __f, const _ProtoAllocator& __a)
       {
 	lock_guard<mutex> __lock(_M_ctx->_M_mtx);
-	_M_ctx->_M_tasks.push({allocator_arg, __a, std::forward<_Func>(__f)});
+	// _M_ctx->_M_tasks.push({allocator_arg, __a, _S_fwd_copyable<_Func>(__f)});
+	_M_ctx->_M_tasks.push(_S_fwd_copyable<_Func>(__f));
 	_M_ctx->_M_cv.notify_one();
       }
 
@@ -289,6 +291,35 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     explicit
     executor_type(io_context& __ctx) : _M_ctx(std::addressof(__ctx)) { }
+
+    template<typename _Func>
+      struct __fake_copyable
+      {
+	explicit
+	__fake_copyable(_Func& __f) : _M_f(std::move(__f)) { }
+
+	__fake_copyable(__fake_copyable&&) = default;
+	__fake_copyable(const __fake_copyable&) { __builtin_abort(); }
+
+	template<typename... _Args>
+	  decltype(auto) operator()(_Args&&... __args) const
+	  { return _M_f(std::forward<_Args>(__args)...); }
+
+	_Func _M_f;
+      };
+
+    template<typename _Func>
+      using __maybe_fake_copyable = conditional_t<
+	__or_<is_lvalue_reference<_Func>,
+	      is_copy_constructible<decay_t<_Func>>>::value,
+	_Func&&,
+	__fake_copyable<decay_t<_Func>>>;
+
+    // Wrap a non-copyable callable so it can be stored in std::function.
+    template<typename _Func>
+      static inline __maybe_fake_copyable<_Func>
+      _S_fwd_copyable(_Func& __f)
+      { return static_cast<__maybe_fake_copyable<_Func>>(__f); }
 
     io_context* _M_ctx;
   };
