@@ -36,6 +36,12 @@
 #else
 
 #include <experimental/netfwd>
+#if _GLIBCXX_HAVE_UNISTD_H
+# include <unistd.h>
+# include <sys/socket.h>
+# include <sys/ioctl.h>
+# include <sys/fcntl.h>
+#endif
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -52,12 +58,731 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    * @{
    */
 
+  enum class socket_errc {  // TODO decide values
+    already_open = 3,
+    not_found = 4
+  };
+
+  const error_category& socket_category() noexcept;
+
+  inline error_code
+  make_error_code(socket_errc __e) noexcept
+  { return error_code(static_cast<int>(__e), socket_category()); }
+
+  inline error_condition
+  make_error_condition(socket_errc __e) noexcept
+  { return error_condition(static_cast<int>(__e), socket_category()); }
+
+  template<typename _Tp, typename = __void_t<>>
+    struct __is_endpoint_impl : false_type
+    { };
+
+  // Check Endpoint requirements.
+  template<typename _Tp>
+    auto
+    __endpoint_reqs(const _Tp* __a = 0)
+    -> enable_if_t<__and_<
+      is_default_constructible<_Tp>,
+      __is_value_constructible<_Tp>,
+      is_same<decltype(__a->__protocol()), typename _Tp::protocol_type>
+      >::value,
+    __void_t< typename _Tp::protocol_type::endpoint >>;
+
+  template<typename _Tp>
+    struct __is_endpoint_impl<_Tp, decltype(__endpoint_reqs<_Tp>())>
+    : true_type
+    { };
+
+  template<typename _Tp>
+    struct __is_endpoint : __is_endpoint_impl<_Tp>
+    { };
+
+  // TODO Endpoint reqs for extensible implementations
+  // TODO _Protocol reqs
+  // TODO AcceptableProtocol reqs
+  // TODO GettableSocket reqs
+  // TODO SettableSocket reqs
+  // TODO BooleanSocketOption reqs
+  // TODO IntegerSocketOption reqs
+  // TODO _IoControlCommand reqs
+  // TODO _ConnectCondition reqs
+
+  // Base class for types meeting BooleanSocketOption requirements.
+  template<typename _Tp>
+    struct __boolean_sockopt
+    {
+      __boolean_sockopt() = default;
+      __boolean_sockopt(const __boolean_sockopt&) = default;
+
+      bool value() const noexcept { return _M_value; }
+      explicit operator bool() const noexcept { return _M_value; }
+
+    private:
+      bool _M_value = false;
+    };
+
+  // Base class for types meeting IntegerSocketOption requirements.
+  template<typename _Tp>
+    struct __integer_sockopt
+    {
+      __integer_sockopt() = default;
+      __integer_sockopt(const __integer_sockopt&) = default;
+
+      bool value() const noexcept { return _M_value; }
+
+    private:
+      int _M_value = 0;
+    };
+
+  /** @brief Sockets
+   * @{
+   */
+
+  class socket_base
+  {
+  public:
+    class broadcast : __boolean_sockopt<broadcast> { };
+    class debug : __boolean_sockopt<debug> { };
+    class do_not_route : __boolean_sockopt<do_not_route> { };
+    class keep_alive : __boolean_sockopt<keep_alive> { };
+    class linger;
+    class out_of_band_inline : __boolean_sockopt<out_of_band_inline> { };
+    class receive_buffer_size : __integer_sockopt<receive_buffer_size> { };
+    class receive_low_watermark : __integer_sockopt<receive_low_watermark> { };
+    class reuse_address : __boolean_sockopt<reuse_address> { };
+    class send_buffer_size : __integer_sockopt<send_buffer_size> { };
+    class send_low_watermark : __integer_sockopt<send_low_watermark> { };
+
+    typedef T1 shutdown_type; // TODO enumerated type
+    static constexpr shutdown_type shutdown_receive;
+    static constexpr shutdown_type shutdown_send;
+    static constexpr shutdown_type shutdown_both;
+
+    typedef T2 wait_type; // TODO enumerated type
+    static constexpr wait_type wait_read;
+    static constexpr wait_type wait_write;
+    static constexpr wait_type wait_error;
+
+    typedef T3 message_flags; // TODO bitmask type
+    static constexpr message_flags message_peek;
+    static constexpr message_flags message_out_of_band;
+    static constexpr message_flags message_do_not_route;
+
+    static const int max_listen_connections; // TODO
+
+  protected:
+    socket_base();
+    ~socket_base();
+  };
+
+  class socket_base::linger
+  {
+  public:
+    // constructors:
+    linger() noexcept : _M_value() { }
+
+    linger(bool __e, chrono::seconds __t) noexcept
+    {
+      enabled(__e);
+      timeout(__t);
+    }
+
+    // members:
+    bool
+    enabled() const noexcept
+    { return _M_value.l_onoff != 0; }
+
+    void
+    enabled(bool __e) noexcept
+    { _M_value.l_onoff = int(__e); }
+
+    chrono::seconds
+    timeout() const noexcept
+    { return chrono::seconds(_M_value.l_linger); }
+
+    void
+    timeout(chrono::seconds __t) noexcept
+    { _M_value.l_linger = __t.count(); }
+
+#if _GLIBCXX_NET_EXTENSIBLE
+    template<typename _Protocol>
+      int
+      level(const _Protocol&) const noexcept
+      { return SOL_SOCKET; }
+
+    template<typename _Protocol>
+      int
+      name(const _Protocol&) const noexcept
+      { return SO_LINGER; }
+
+    template<typename _Protocol>
+      void
+      data(const _Protocol&) noexcept
+      { return std::addressof(_M_value); }
+
+    template<typename _Protocol>
+      const void*
+      data(const _Protocol&) const noexcept
+      { return std::addressof(_M_value); }
+
+    template<typename _Protocol>
+      size_t size(const _Protocol&) const noexcept
+      { return sizeof(_M_value); }
+
+    template<typename _Protocol>
+      void resize(const _Protocol&, size_t __s)
+      {
+	if (__s != sizeof(_M_value))
+	  __throw_length_error("socket_base::linger::resize");
+      }
+#endif
+
+  private:
+    ::linger _M_value;
+  };
+
+#if _GLIBCXX_HAVE_UNISTD_H
+  template<typename _Protocol>
+    class basic_socket : public socket_base
+    {
+    public:
+      // types:
+
+      typedef io_context::executor_type executor_type;
+      typedef int native_handle_type;
+      typedef _Protocol protocol_type;
+      typedef typename protocol_type::endpoint endpoint_type;
+
+      // basic_socket operations:
+
+      executor_type get_executor() noexcept { _M_ctx->get_executor(); }
+
+      native_handle_type native_handle() noexcept { return _M_sockfd; }
+
+      void
+      open(const protocol_type& __protocol = protocol_type())
+      { open(__protocol, __throw_on_error{"basic_socket::open"}); }
+
+      void
+      open(const protocol_type& __protocol, error_code& __ec)
+      {
+	if (is_open())
+	  __ec = socket_errc::already_open;
+	else
+	  {
+	    _M_sockfd = ::socket(__protocol.family(), __protocol.type(),
+				 __protocol.protocol());
+	    if (is_open())
+	      __ec.clear();
+	    else
+	      __ec.assign(errno, std::generic_category());
+	  }
+      }
+
+      void
+      assign(const protocol_type& __protocol,
+	     const native_handle_type& __native_socket)
+      {
+	assign(__protocol, __native_socket,
+	       __throw_on_error{"basic_socket::assign"});
+      }
+
+      void
+      assign(const protocol_type& __protocol,
+	     const native_handle_type& __native_socket,
+	     error_code& __ec)
+      {
+	if (is_open())
+	  __ec = socket_errc::already_open;
+	else
+	  {
+	    _M_bits.native_non_blocking = -1;
+	    _M_sockfd = __native_socket;
+	    if (is_open())
+	      __ec.clear();
+	    else
+	      __ec.assign(errno, std::generic_category());
+	  }
+      }
+
+      bool is_open() const noexcept { return _M_sockfd != -1; }
+
+      void close() { close(__throw_on_error{"basic_socket::close"}); }
+
+      void close(error_code& __ec) { _M_close(&__ec); }
+
+      void cancel() { cancel(__throw_on_error{"basic_socket::cancel"}); }
+
+      void cancel(error_code& __ec); // TODO
+
+      template<typename _SettableSocketOption>
+	void
+	set_option(const _SettableSocketOption& __option)
+	{ set_option(__option, __throw_on_error{"basic_socket::set_option"}); }
+
+      template<typename _SettableSocketOption>
+	void
+	set_option(const _SettableSocketOption& __option, error_code& __ec)
+	{
+	  int __result = ::setsockopt(_M_sockfd, __option.level(_M_protocol),
+				      __option.name(_M_protocol),
+				      __option.data(_M_protocol),
+				      __option.size(_M_protocol));
+	  if (__e == -1)
+	    __ec.assign(errno. generic_category());
+	  else
+	    __ec.clear();
+	}
+
+      template<typename _GettableSocketOption>
+	void
+	get_option(_GettableSocketOption& __option) const
+	{ get_option(__option, __throw_on_error{"basic_socket::get_option"}); }
+
+      template<typename _GettableSocketOption>
+	void
+	get_option(_GettableSocketOption& __option, error_code& __ec) const
+	{
+	  int __result = ::getsockopt(_M_sockfd, __option.level(_M_protocol),
+				      __option.name(_M_protocol),
+				      __option.data(_M_protocol),
+				      __option.size(_M_protocol));
+	  if (__result == -1)
+	    __ec.assign(errno. generic_category());
+	  else
+	    __ec.clear();
+	}
+
+
+      template<typename _IoControlCommand>
+	void
+	io_control(_IoControlCommand& __command);
+
+      template<typename _IoControlCommand>
+	void
+	io_control(_IoControlCommand& __command, error_code& __ec)
+	{
+	  int __result = ::ioctl(_M_sockfd, __command.name(_M_protocol),
+				 __command.data(_M_protocol));
+	  if (__result == -1)
+	    __ec.assign(errno. generic_category());
+	  else
+	    __ec.clear();
+	}
+
+      void
+      non_blocking(bool __mode)
+      { non_blocking(__mode, __throw_on_error{"basic_socket::non_blocking"}); }
+
+      void
+      non_blocking(bool __mode, error_code&)
+      { _M_bits.non_blocking = __mode; }
+
+      bool non_blocking() const { return _M_bits.non_blocking; }
+
+      void
+      native_non_blocking(bool __mode);
+      {
+	native_non_blocking(__mode, __throw_on_error{
+	    "basic_socket::native_non_blocking"});
+      }
+
+      void
+      native_non_blocking(bool __mode, error_code& __ec)
+      {
+	int __flags = ::fcntl(_M_sockfd, F_GETFL, 0);
+	if (__flags >= 0)
+	  {
+	    if (__mode)
+	      __flags |= O_NONBLOCK;
+	    else
+	      __flags &= ~O_NONBLOCK;
+	    __flags = ::fcntl(_M_sockfd, F_SETFL, __flags);
+	  }
+	if (__flags == -1)
+	  __ec.assign(errno, generic_category());
+	else
+	  {
+	    __ec.clear();
+	    _M_bits.native_non_blocking = __mode;
+	  }
+      }
+
+      bool
+      native_non_blocking() const
+      {
+	if (_M_bits.native_non_blocking == -1)
+	  {
+	    const int __flags = ::fcntl(_M_sockfd, F_GETFL, 0);
+	    if (__flags == -1)
+	      return 0;
+	    _M_bits.native_non_blocking = __flags & O_NONBLOCK;
+	  }
+	return _M_bits.native_non_blocking;
+      }
+
+      bool at_mark() const
+      { return at_mark(__throw_on_error{"basic_socket::at_mark"}); }
+
+      bool
+      at_mark(error_code& __ec) const
+      {
+	const int __result = ::sockatmark(_M_sockfd);
+	if (__result == -1)
+	  __ec.assign(errno, generic_category());
+	else
+	  {
+	    __ec.clear();
+	    return __result;
+	  }
+      }
+
+      size_t
+      available() const
+      { return available(__throw_on_error{"basic_socket::available"}); }
+
+      size_t available(error_code& __ec) const; // TODO
+
+      void
+      bind(const endpoint_type& __endpoint)
+      { return bind(__endpoint, __throw_on_error{"basic_socket::bind"}); }
+
+      void
+      bind(const endpoint_type& __endpoint, error_code& __ec)
+      {
+	if (::bind(_M_sockfd, __endpoint.data(), __endpoint.size()) == -1)
+	  __ec.assign(errno, generic_category());
+	else
+	  __ec.clear();
+      }
+
+      void shutdown(shutdown_type __what)
+      { return shutdown(__what, __throw_on_error{"basic_socket::what"}); }
+
+      void
+      shutdown(shutdown_type __what, error_code& __ec)
+      {
+	if (::shutdown(_M_sockfd, static_cast<int>(__what)) == -1)
+	  __ec.assign(errno, generic_category());
+	else
+	  __ec.clear();
+      }
+
+      endpoint_type
+      local_endpoint() const;
+      {
+	return local_endpoint(
+	    __throw_on_error{"basic_socket::local_endpoint"});
+      }
+
+      endpoint_type
+      local_endpoint(error_code& __ec) const
+      {
+	endpoint_type __endpoint;
+	socklen_t __endpoint_len = __endpoint.capacity();
+	if (::getsockname(_M_sockfd, __endpoint.data(), &__endpoint_len) == -1)
+	  {
+	    __ec.assign(errno, generic_category());
+	    return endpoint_type{};
+	  }
+	__ec.clear();
+	__endpoint.resize(__endpoint_len);
+	return __endpoint;
+      }
+
+      endpoint_type
+      remote_endpoint() const
+      {
+	return remote_endpoint(
+	    __throw_on_error{"basic_socket::remote_endpoint"});
+      }
+
+      endpoint_type
+      remote_endpoint(error_code& __ec) const
+      {
+	endpoint_type __endpoint;
+	socklen_t __endpoint_len = __endpoint.capacity();
+	if (::getpeername(_M_sockfd, __endpoint.data(), &__endpoint_len) == -1)
+	  {
+	    __ec.assign(errno, generic_category());
+	    return endpoint_type{};
+	  }
+	__ec.clear();
+	__endpoint.resize(__endpoint_len);
+	return __endpoint;
+      }
+
+      void
+      connect(const endpoint_type& __endpoint);
+      {
+	return connect(__endpoint, __throw_on_error{"basic_socket::connect"});
+      }
+
+      void
+      connect(const endpoint_type& __endpoint, error_code& __ec)
+      {
+	if (!is_open())
+	  {
+	    open(__endpoint.protocol(), __ec);
+	    if (__ec)
+	      return;
+	  }
+	if (::connect(_M_sockfd, __endpoint.data(), __endpoint.size()) == -1)
+	  __ec.assign(errno, generic_category());
+	else
+	  __ec.clear();
+      }
+
+      template<typename _CompletionToken>
+	__deduced_t<_CompletionToken, void(error_code)>
+	async_connect(const endpoint_type& __endpoint,
+		      _CompletionToken&& __token); // TODO
+
+      void wait(wait_type __w)
+      { return wait(__w, __throw_on_error{"basic_socket::wait"}); }
+
+      void wait(wait_type __w, error_code& __ec); // TODO
+
+      template<typename _CompletionToken>
+	__deduced_t<_CompletionToken, void(error_code)>
+	async_wait(wait_type __w, _CompletionToken&& __token); // TODO
+
+    protected:
+      // construct / copy / destroy:
+
+      explicit
+      basic_socket(io_context& __ctx)
+      : _M_ctx(std::addressof(__ctx)) { }
+
+      basic_socket(io_context& __ctx, const protocol_type& __protocol)
+      : _M_ctx(std::addressof(__ctx))
+      { open(__protocol); }
+
+      basic_socket(io_context& __ctx, const endpoint_type& __endpoint);
+      : _M_ctx(std::addressof(__ctx))
+      {
+	open(__endpoint.protocol());
+	bind(__endpoint);
+      }
+
+      basic_socket(io_context& __ctx, const protocol_type& __protocol,
+		   const native_handle_type& __native_socket)
+      : _M_ctx(std::addressof(__ctx)), _M_non_blocking(0)
+      { assign(__protocol, __native_socket); }
+
+      basic_socket(const basic_socket&) = delete;
+
+      basic_socket(basic_socket&& __rhs)
+      : _M_ctx(__rhs._M_ctx), _M_sockfd(std::exchange(__rhs._M_sockfd, -1)),
+        _M_protocol(__rhs._M_protocol), _M_bits(__rhs._M_bits)
+      { }
+
+      template<typename _OtherProtocol, typename _Requires
+	       = _Require<is_convertible<_OtherProtocol, _Protocol>>>
+	basic_socket(basic_socket<_OtherProtocol>&& __rhs)
+	: _M_ctx(__rhs._M_ctx),
+	  _M_sockfd(std::exchange(__rhs._M_sockfd, -1)),
+	  _M_protocol(__rhs._M_protocol),
+	  _M_bits(std::exchange(__rhs._M_bits, {}))
+	{ }
+
+      ~basic_socket() { _M_close(); }
+
+      basic_socket& operator=(const basic_socket&) = delete;
+
+      basic_socket&
+      operator=(basic_socket&& __rhs)
+      {
+	if (this == std::addressof(__rhs))
+	  return *this;
+
+	_M_close();
+	_M_ctx = __rhs._M_ctx;
+	_M_protocol = __rhs._M_protocol;
+	_M_sockfd = std::exchange(__rhs._M_sockfd, -1);
+	_M_bits = std::exchange(__rhs._M_bits, {});
+	return *this;
+      }
+
+      template<typename _OtherProtocol>
+	enable_if_t<is_convertible<_OtherProtocol, _Protocol>::value,
+		    basic_socket&>
+	operator=(basic_socket<_OtherProtocol>&& __rhs)
+        { return *this = basic_socket{std::move(__rhs)}; }
+
+    private:
+      void
+      _M_close(error_code* __ecp = nullptr, bool __no_linger = false)
+      {
+	if (is_open())
+	  {
+	    error_code __ec;
+	    cancel(__ec);
+	    if (__no_linger)
+	      set_option(socket_base::linger{false, 0}, __ec);
+	    if (::close(_M_sockfd) == -1)
+	      __ec.assign(errno, generic_category());
+	    if (__ecp)
+	      *__ecp = __ec;
+	  }
+      }
+
+      struct __throw_on_error
+      {
+	explicit
+	__throw_on_error(const char* __msg) : _M_msg(__msg) { }
+
+	~__throw_on_error()
+	{
+	  if (_M_ec)
+	    _GLIBCXX_THROW_OR_ABORT(system_error(_M_ec, _M_msg));
+	}
+
+	operator error_code&() noexcept { return _M_ec; }
+
+	const char* _M_msg;
+	error_code _M_ec;
+      };
+
+      io_context*	_M_ctx;
+      int		_M_sockfd{-1};
+      protocol_type	_M_protocol{};
+      struct {
+	unsigned	non_blocking : 1;
+	signed		native_non_blocking : 2;
+      } _M_bits{};
+    };
+
+  template<typename _Protocol>
+    class basic_datagram_socket;
+
+  template<typename _Protocol>
+    class basic_stream_socket;
+
+  template<typename _Protocol>
+    class basic_socket_acceptor;
+
+  // @}
+
+  /** @brief Socket streams
+   * @{
+   */
+
+  template<typename _Protocol, typename _Clock = chrono::steady_clock,
+	   typename _WaitTraits = wait_traits<_Clock>>
+    class basic_socket_streambuf;
+
+  template<typename _Protocol, class _Clock = chrono::steady_clock,
+	   typename _WaitTraits = wait_traits<_Clock>>
+    class basic_socket_iostream;
+
+  // @}
+
+  /** @brief synchronous connect operations
+   * @{
+   */
+
+  template<typename _Protocol, typename _EndpointSequence>
+    typename _Protocol::endpoint
+    connect(basic_socket<_Protocol>& __s,
+	    const _EndpointSequence& __endpoints);
+
+  template<typename _Protocol, typename _EndpointSequence>
+    typename _Protocol::endpoint
+    connect(basic_socket<_Protocol>& __s,
+	    const _EndpointSequence& __endpoints,
+	    error_code& __ec);
+
+  template<typename _Protocol, typename _EndpointSequence,
+	   typename _ConnectCondition>
+    typename _Protocol::endpoint
+    connect(basic_socket<_Protocol>& __s,
+	    const _EndpointSequence& __endpoints,
+	    _ConnectCondition __c);
+
+  template<typename _Protocol, typename _EndpointSequence,
+	   typename _ConnectCondition>
+    typename _Protocol::endpoint
+    connect(basic_socket<_Protocol>& __s,
+	    const _EndpointSequence& __endpoints,
+	    _ConnectCondition __c, error_code& __ec);
+
+  template<typename _Protocol, typename _InputIterator>
+    _InputIterator
+    connect(basic_socket<_Protocol>& __s,
+	    _InputIterator __first, _InputIterator __last);
+
+  template<typename _Protocol, typename _InputIterator>
+    _InputIterator
+    connect(basic_socket<_Protocol>& __s,
+	    _InputIterator __first, _InputIterator __last,
+	    error_code& __ec);
+
+  template<typename _Protocol, typename _InputIterator,
+	   typename _ConnectCondition>
+    _InputIterator
+    connect(basic_socket<_Protocol>& __s,
+	    _InputIterator __first, _InputIterator __last,
+	    _ConnectCondition __c);
+
+  template<typename _Protocol, typename _InputIterator,
+	   typename _ConnectCondition>
+    _InputIterator
+    connect(basic_socket<_Protocol>& __s,
+	    _InputIterator __first, _InputIterator __last,
+	    _ConnectCondition __c, error_code& __ec);
+
+  // @}
+
+  /** @brief asynchronous connect operations
+   * @{
+   */
+
+#if 0
+  template<typename _Protocol, typename _EndpointSequence,
+	   typename _CompletionToken>
+    DEDUCED
+    async_connect(basic_socket<_Protocol>& __s,
+		  const _EndpointSequence& __endpoints,
+		  _CompletionToken&& __token);
+
+  template<typename _Protocol, typename _EndpointSequence,
+	   typename _ConnectCondition, typename _CompletionToken>
+    DEDUCED
+    async_connect(basic_socket<_Protocol>& __s,
+		  const _EndpointSequence& __endpoints,
+		  _ConnectCondition __c, _CompletionToken&& __token);
+
+  template<typename _Protocol, typename _InputIterator,
+	   typename _CompletionToken>
+    DEDUCED
+    async_connect(basic_socket<_Protocol>& __s,
+		  _InputIterator __first, _InputIterator __last,
+		  _CompletionToken&& __token);
+
+  template<typename _Protocol, typename _InputIterator,
+	   typename _ConnectCondition, typename _CompletionToken>
+    DEDUCED
+    async_connect(basic_socket<_Protocol>& __s,
+		  _InputIterator __first, _InputIterator __last,
+		  _ConnectCondition __c, _CompletionToken&& __token);
+#endif
+
+  // @}
+
+#endif  // _GLIBCXX_HAVE_UNISTD_H
+
   // @}
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace v1
 } // namespace net
 } // namespace experimental
+
+  template<>
+    struct is_error_code_enum<experimental::net::v1::socket_errc>
+    : public true_type {};
+
 } // namespace std
 
 #endif // C++14
