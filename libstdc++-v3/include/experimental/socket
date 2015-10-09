@@ -457,7 +457,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       }
 
       void shutdown(shutdown_type __what)
-      { return shutdown(__what, __throw_on_error{"basic_socket::what"}); }
+      { return shutdown(__what, __throw_on_error{"basic_socket::shutdown"}); }
 
       void
       shutdown(shutdown_type __what, error_code& __ec)
@@ -610,23 +610,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	operator=(basic_socket<_OtherProtocol>&& __rhs)
         { return *this = basic_socket{std::move(__rhs)}; }
 
-    private:
-      void
-      _M_close(error_code* __ecp = nullptr, bool __no_linger = false)
-      {
-	if (is_open())
-	  {
-	    error_code __ec;
-	    cancel(__ec);
-	    if (__no_linger)
-	      set_option(socket_base::linger{false, 0}, __ec);
-	    if (::close(_M_sockfd) == -1)
-	      __ec.assign(errno, generic_category());
-	    if (__ecp)
-	      *__ecp = __ec;
-	  }
-      }
-
+    protected:
       struct __throw_on_error
       {
 	explicit
@@ -644,6 +628,23 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	error_code _M_ec;
       };
 
+    private:
+      void
+      _M_close(error_code* __ecp = nullptr, bool __no_linger = false)
+      {
+	if (is_open())
+	  {
+	    error_code __ec;
+	    cancel(__ec);
+	    if (__no_linger)
+	      set_option(socket_base::linger{false, 0}, __ec);
+	    if (::close(_M_sockfd) == -1)
+	      __ec.assign(errno, generic_category());
+	    if (__ecp)
+	      *__ecp = __ec;
+	  }
+      }
+
       io_context*	_M_ctx;
       int		_M_sockfd{-1};
       protocol_type	_M_protocol{};
@@ -654,7 +655,283 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     };
 
   template<typename _Protocol>
-    class basic_datagram_socket;
+    class basic_datagram_socket : public basic_socket<_Protocol>
+    {
+      using __base = basic_socket<_Protocol>;
+
+    public:
+      // types:
+
+      typedef int native_handle_type;
+      typedef _Protocol protocol_type;
+      typedef typename protocol_type::endpoint endpoint_type;
+
+      // construct / copy / destroy:
+
+      explicit
+      basic_datagram_socket(io_context& __ctx) : __base(__ctx) { }
+
+      basic_datagram_socket(io_context& __ctx, const protocol_type& __protocol)
+      : __base(__ctx, __protocol) { }
+
+      basic_datagram_socket(io_context& __ctx, const endpoint_type& __endpoint)
+      : __base(__ctx, __endpoint) { }
+
+      basic_datagram_socket(io_context& __ctx, const protocol_type& __protocol,
+			    const native_handle_type& __native_socket)
+      : __base(__ctx, __protocol, __native_socket) { }
+
+      basic_datagram_socket(const basic_datagram_socket&) = delete;
+
+      basic_datagram_socket(basic_datagram_socket&& __rhs) = default;
+
+      template<typename _OtherProtocol, typename _Requires
+	       = _Require<is_convertible<_OtherProtocol, _Protocol>>>
+	basic_datagram_socket(basic_datagram_socket<_OtherProtocol>&& __rhs)
+	: __base(std::move(__rhs)) { }
+
+      ~basic_datagram_socket() = default;
+
+      basic_datagram_socket& operator=(const basic_datagram_socket&) = delete;
+
+      basic_datagram_socket& operator=(basic_datagram_socket&& __rhs) = default;
+
+      template<typename _OtherProtocol>
+	enable_if_t<is_convertible<_OtherProtocol, _Protocol>::value,
+		    basic_datagram_socket&>
+	operator=(basic_datagram_socket<_OtherProtocol>&& __rhs)
+	{
+	  __base::operator=(std::move(__rhs));
+	  return *this;
+	}
+
+      // basic_datagram_socket operations:
+
+      template<typename _MutableBufferSequence>
+	size_t
+	receive(const _MutableBufferSequence& __buffers)
+	{
+	  return receive(__buffers, socket_base::message_flags(),
+			 __throw_on_error{"basic_datagram_socket::receive"});
+	}
+
+      template<typename _MutableBufferSequence>
+	size_t
+	receive(const _MutableBufferSequence& __buffers, error_code& __ec);
+        { return receive(__buffers, socket_base::message_flags(), __ec); }
+
+      template<typename _MutableBufferSequence>
+	size_t
+	receive(const _MutableBufferSequence& __buffers,
+		       socket_base::message_flags __flags)
+	{
+	  return receive(__buffers, __flags,
+			 __throw_on_error{"basic_datagram_socket::receive"});
+	}
+
+      template<typename _MutableBufferSequence>
+	size_t
+	receive(const _MutableBufferSequence& __buffers,
+		socket_base::message_flags __flags, error_code& __ec)
+	{
+	  // TODO iovec etc.
+	  // http://wg21.link/p0112r0#socket.dgram.op
+	}
+
+      template<typename _MutableBufferSequence, typename _CompletionToken>
+	__deduced_t<_CompletionToken, void(error_code, size_t)>
+	async_receive(const _MutableBufferSequence& __buffers,
+		      _CompletionToken&& __token)
+	{
+	  return async_receive(__buffers, socket_base::message_flags(),
+			       std::forward<_CompletionToken>(__token));
+	}
+
+      template<typename _MutableBufferSequence, typename _CompletionToken>
+	__deduced_t<_CompletionToken, void(error_code, size_t)>
+	async_receive(const _MutableBufferSequence& __buffers,
+			   socket_base::message_flags __flags,
+			   _CompletionToken&& __token)
+	{
+	  // TODO iovec etc.
+	  // http://wg21.link/p0112r0#socket.dgram.op
+	}
+
+      template<typename _MutableBufferSequence>
+	size_t
+	receive_from(const _MutableBufferSequence& __buffers,
+		     endpoint_type& __sender)
+	{
+	  return receive_from(__buffers, __sender,
+			      socket_base::message_flags(),
+			      __throw_on_error{
+				  "basic_datagram_socket::receive_from"});
+	}
+
+      template<typename _MutableBufferSequence>
+	size_t
+	receive_from(const _MutableBufferSequence& __buffers,
+		     endpoint_type& __sender, error_code& __ec)
+	{
+	  return receive_from(__buffers, __sender,
+			      socket_base::message_flags(), __ec);
+	}
+
+      template<typename _MutableBufferSequence>
+	size_t
+	receive_from(const _MutableBufferSequence& __buffers,
+		     endpoint_type& __sender,
+		     socket_base::message_flags __flags)
+	{
+	  return receive_from(__buffers, __sender, __flags,
+			      __throw_on_error{
+				  "basic_datagram_socket::receive_from"});
+	}
+
+      template<typename _MutableBufferSequence>
+	size_t
+	receive_from(const _MutableBufferSequence& __buffers,
+		     endpoint_type& __sender,
+		     socket_base::message_flags __flags,
+		     error_code& __ec)
+	{
+	  // TODO iovec etc.
+	  // http://wg21.link/p0112r0#socket.dgram.op
+	}
+
+      template<typename _MutableBufferSequence, typename _CompletionToken>
+	__deduced_t<_CompletionToken, void(error_code, size_t)>
+	async_receive_from(const _MutableBufferSequence& __buffers,
+			   endpoint_type& __sender,
+			   _CompletionToken&& __token)
+	{
+	  return async_receive_from(__buffers, __sender,
+				    socket_base::message_flags(),
+				    std::forward<_CompletionToken>(__token));
+	}
+
+      template<typename _MutableBufferSequence, typename _CompletionToken>
+	__deduced_t<_CompletionToken, void(error_code, size_t)>
+	async_receive_from(const _MutableBufferSequence& __buffers,
+			   endpoint_type& __sender,
+			   socket_base::message_flags __flags,
+			   _CompletionToken&& __token)
+	{
+	  // TODO iovec etc.
+	  // http://wg21.link/p0112r0#socket.dgram.op
+	}
+
+      template<typename _ConstBufferSequence>
+	size_t
+	send(const _ConstBufferSequence& __buffers)
+	{
+	  return send(__buffers, socket::base::message_flags(),
+		      __throw_on_error{"basic_datagram_socket::send"});
+	}
+
+      template<typename _ConstBufferSequence>
+	size_t
+	send(const _ConstBufferSequence& __buffers, error_code& __ec)
+	{ return send(__buffers, socket::base::message_flags(), __ec); }
+
+      template<typename _ConstBufferSequence>
+	size_t
+	send(const _ConstBufferSequence& __buffers,
+	     socket_base::message_flags __flags)
+	{
+	  return send(__buffers, __flags,
+		      __throw_on_error{"basic_datagram_socket::send"});
+	}
+
+      template<typename _ConstBufferSequence>
+	size_t
+	send(const _ConstBufferSequence& __buffers,
+	     socket_base::message_flags __flags, error_code& __ec)
+	{
+	  // TODO iovec etc.
+	  // http://wg21.link/p0112r0#socket.dgram.op
+	}
+
+      template<typename _ConstBufferSequence, typename _CompletionToken>
+	__deduced_t<_CompletionToken, void(error_code, size_t)>
+	async_send(const _ConstBufferSequence& __buffers,
+			_CompletionToken&& __token)
+	{
+	  return async_send(__buffers, socket_base::message_flags(),
+			    std::forward<_CompletionToken>(__token));
+	}
+
+      template<typename _ConstBufferSequence, typename _CompletionToken>
+	__deduced_t<_CompletionToken, void(error_code, size_t)>
+	async_send(const _ConstBufferSequence& __buffers,
+		   socket_base::message_flags __flags,
+		   _CompletionToken&& __token)
+	{
+	  // TODO iovec etc.
+	  // http://wg21.link/p0112r0#socket.dgram.op
+	}
+
+      template<typename _ConstBufferSequence>
+	size_t
+	send_to(const _ConstBufferSequence& __buffers,
+	        const endpoint_type& __destination)
+	{
+	  return send_to(__buffers, __destination,
+			 socket_base::message_flags(),
+			 __throw_on_error{"basic_datagram_socket::send_to"});
+	}
+
+      template<typename _ConstBufferSequence>
+	size_t
+	send_to(const _ConstBufferSequence& __buffers,
+		const endpoint_type& __destination, error_code& __ec)
+	{
+	  return send_to(__buffers, __destination,
+			 socket_base::message_flags(), __ec);
+	}
+
+      template<typename _ConstBufferSequence>
+	size_t
+	send_to(const _ConstBufferSequence& __buffers,
+		const endpoint_type& __destination,
+		socket_base::message_flags __flags)
+	{
+	  return send_to(__buffers, __destination, __flags,
+			 __throw_on_error{"basic_datagram_socket::send_to"});
+	}
+
+      template<typename _ConstBufferSequence>
+	size_t
+	send_to(const _ConstBufferSequence& __buffers,
+		       const endpoint_type& __destination,
+		       socket_base::message_flags __flags, error_code& __ec)
+	{
+	  // TODO iovec etc.
+	  // http://wg21.link/p0112r0#socket.dgram.op
+	}
+
+      template<typename _ConstBufferSequence, typename _CompletionToken>
+	__deduced_t<_CompletionToken, void(error_code, size_t)>
+	async_send_to(const _ConstBufferSequence& __buffers,
+		      const endpoint_type& __destination,
+		      _CompletionToken&& __token)
+	{
+	  return async_send_to(__buffers, __destination,
+			       socket_base::message_flags(),
+			       std::forward<_CompletionToken>(__token));
+	}
+
+      template<typename _ConstBufferSequence, typename _CompletionToken>
+	__deduced_t<_CompletionToken, void(error_code, size_t)>
+	async_send_to(const _ConstBufferSequence& __buffers,
+		      const endpoint_type& __destination,
+		      socket_base::message_flags __flags,
+		      _CompletionToken&& __token)
+	{
+	  // TODO iovec etc.
+	  // http://wg21.link/p0112r0#socket.dgram.op
+	}
+    };
 
   template<typename _Protocol>
     class basic_stream_socket;
