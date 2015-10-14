@@ -68,10 +68,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     // construct / copy / destroy:
 
-    io_context();  // TODO
+    io_context() { }  // TODO
 
     explicit
-    io_context(int __concurrency_hint);  // TODO
+    io_context(int __concurrency_hint) { }  // TODO
 
     io_context(const io_context&) = delete;
     io_context& operator=(const io_context&) = delete;
@@ -119,22 +119,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  stop();
 	  return 0;
 	}
-      while (true)
-	{
-	  function<void()> __f;
-	  {
-	    unique_lock<mutex> __lock(_M_mtx);
-	    _M_cv.wait(__lock, [this] {
-		return !_M_stopped && !_M_tasks.empty();
-	    });
-	    if (_M_stopped)
-	      return 0;
-	    __f = std::move(_M_tasks.front());
-	    _M_tasks.pop();
-	  }
-	  __f();
-	  return 1;
-	}
+      function<void()> __f;
+      {
+	unique_lock<mutex> __lock(_M_mtx);
+	_M_cv.wait(__lock, [this] {
+	    return _M_stopped || !_M_tasks.empty();
+	});
+	if (_M_stopped)
+	  return 0;
+	__f = std::move(_M_tasks.front());
+	_M_tasks.pop();
+      }
+      __f();
+      return 1;
     }
 
     template<typename _Rep, typename _Period>
@@ -151,22 +148,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    stop();
 	    return 0;
 	  }
-	while (true)
-	  {
-	    function<void()> __f;
-	    {
-	      unique_lock<mutex> __lock(_M_mtx);
-	      _M_cv.wait_until(__lock, [this] {
-		  return !_M_stopped && !_M_tasks.empty();
-	      });
-	      if (_M_stopped)
-		return 0;
-	      __f = std::move(_M_tasks.front());
-	      _M_tasks.pop();
-	    }
-	    __f();
-	    return 1;
-	  }
+	function<void()> __f;
+	{
+	  unique_lock<mutex> __lock(_M_mtx);
+	  auto __status = _M_cv.wait_until(__lock, __abs_time, [this] {
+	      return _M_stopped || !_M_tasks.empty();
+	  });
+	  if (__status == cv_status::timeout || _M_stopped)
+	    return 0;
+	  __f = std::move(_M_tasks.front());
+	  _M_tasks.pop();
+	}
+	__f();
+	return 1;
       }
 
     count_type
@@ -245,11 +239,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   public:
     // construct / copy / destroy:
 
-    executor_type(const executor_type& __other) noexcept;
-    executor_type(executor_type&& __other) noexcept;
+    executor_type(const executor_type& __other) noexcept = default;
+    executor_type(executor_type&& __other) noexcept = default;
 
-    executor_type& operator=(const executor_type& __other) noexcept;
-    executor_type& operator=(executor_type&& __other) noexcept;
+    executor_type& operator=(const executor_type& __other) noexcept = default;
+    executor_type& operator=(executor_type&& __other) noexcept = default;
 
     // executor operations:
 
@@ -299,10 +293,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	__fake_copyable(_Func& __f) : _M_f(std::move(__f)) { }
 
 	__fake_copyable(__fake_copyable&&) = default;
-	__fake_copyable(const __fake_copyable&) { __builtin_abort(); }
+	__fake_copyable(const __fake_copyable& __other)
+	: _M_f(std::move(const_cast<__fake_copyable&>(__other)._M_f))
+	{ __builtin_abort(); }
 
 	template<typename... _Args>
-	  decltype(auto) operator()(_Args&&... __args) const
+	  decltype(auto) operator()(_Args&&... __args)
 	  { return _M_f(std::forward<_Args>(__args)...); }
 
 	_Func _M_f;
