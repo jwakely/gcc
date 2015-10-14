@@ -1103,9 +1103,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename _ConstBufferSequence>
 	size_t
 	send_to(const _ConstBufferSequence& __buffers,
-	        const endpoint_type& __destination)
+	        const endpoint_type& __recipient)
 	{
-	  return send_to(__buffers, __destination,
+	  return send_to(__buffers, __recipient,
 			 socket_base::message_flags(),
 			 __throw_on_error{"basic_datagram_socket::send_to"});
 	}
@@ -1113,26 +1113,26 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename _ConstBufferSequence>
 	size_t
 	send_to(const _ConstBufferSequence& __buffers,
-		const endpoint_type& __destination, error_code& __ec)
+		const endpoint_type& __recipient, error_code& __ec)
 	{
-	  return send_to(__buffers, __destination,
+	  return send_to(__buffers, __recipient,
 			 socket_base::message_flags(), __ec);
 	}
 
       template<typename _ConstBufferSequence>
 	size_t
 	send_to(const _ConstBufferSequence& __buffers,
-		const endpoint_type& __destination,
+		const endpoint_type& __recipient,
 		socket_base::message_flags __flags)
 	{
-	  return send_to(__buffers, __destination, __flags,
+	  return send_to(__buffers, __recipient, __flags,
 			 __throw_on_error{"basic_datagram_socket::send_to"});
 	}
 
       template<typename _ConstBufferSequence>
 	size_t
 	send_to(const _ConstBufferSequence& __buffers,
-	        const endpoint_type& __destination,
+	        const endpoint_type& __recipient,
 		socket_base::message_flags __flags, error_code& __ec)
 	{
 	  ::iovec __iov[socket_base::_S_iov_max()];
@@ -1140,8 +1140,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  ::msghdr __msg{ };
 	  __msg.msg_iov = __iov;
 	  __msg.msg_iovlen = __iovlen;
-	  __msg.msg_name = __destination.data();
-	  __msg.msg_namelen = __destination.size();
+	  __msg.msg_name = __recipient.data();
+	  __msg.msg_namelen = __recipient.size();
 	  ssize_t __result = ::sendmsg(__base::native_handle(), &__msg,
 				       static_cast<int>(__flags));
 	  if (__result >= 0)
@@ -1156,10 +1156,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename _ConstBufferSequence, typename _CompletionToken>
 	__deduced_t<_CompletionToken, void(error_code, size_t)>
 	async_send_to(const _ConstBufferSequence& __buffers,
-		      const endpoint_type& __destination,
+		      const endpoint_type& __recipient,
 		      _CompletionToken&& __token)
 	{
-	  return async_send_to(__buffers, __destination,
+	  return async_send_to(__buffers, __recipient,
 			       socket_base::message_flags(),
 			       std::forward<_CompletionToken>(__token));
 	}
@@ -1167,7 +1167,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename _ConstBufferSequence, typename _CompletionToken>
 	__deduced_t<_CompletionToken, void(error_code, size_t)>
 	async_send_to(const _ConstBufferSequence& __buffers,
-		      const endpoint_type& __destination,
+		      const endpoint_type& __recipient,
 		      socket_base::message_flags __flags,
 		      _CompletionToken&& __token)
 	{
