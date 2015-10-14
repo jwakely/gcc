@@ -237,6 +237,18 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return __total_size;
     }
 
+  template<typename _ConstBufferSequence>
+    bool
+    __buffer_empty(const _ConstBufferSequence& __buffers) noexcept
+    {
+      auto __i = net::buffer_sequence_begin(__buffers);
+      const auto __end = net::buffer_sequence_end(__buffers);
+      for (; __i != __end; ++__i)
+	if (const_buffer(*__i).size() != 0)
+	  return false;
+      return true;
+    }
+
   // buffer copy:
 
   template<typename _MutableBufferSequence, typename _ConstBufferSequence>

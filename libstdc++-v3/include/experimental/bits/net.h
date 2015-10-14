@@ -37,6 +37,7 @@
 #else
 
 #include <type_traits>
+#include <system_error>
 #include <experimental/netfwd>
 
 namespace std _GLIBCXX_VISIBILITY(default)
@@ -68,6 +69,99 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       is_copy_constructible<_Tp>, is_move_constructible<_Tp>,
       is_constructible<_Tp, _Tp&>, is_constructible<_Tp, const _Tp&&>
       >::type;
+
+    struct __throw_on_error
+    {
+      explicit
+      __throw_on_error(const char* __msg) : _M_msg(__msg) { }
+
+      ~__throw_on_error() noexcept(false)
+      {
+	if (_M_ec)
+	  _GLIBCXX_THROW_OR_ABORT(system_error(_M_ec, _M_msg));
+      }
+
+      __throw_on_error(const __throw_on_error&) = delete;
+      __throw_on_error& operator=(const __throw_on_error&) = delete;
+
+      operator error_code&() noexcept { return _M_ec; }
+
+      const char* _M_msg;
+      error_code _M_ec;
+    };
+
+  // Base class for types meeting IntegerSocketOption requirements.
+  template<typename _Tp>
+    struct __sockopt_base
+    {
+      __sockopt_base() = default;
+
+      explicit __sockopt_base(int __val) : _M_value(__val) { }
+
+      int value() const noexcept { return _M_value; }
+
+      template<typename _Protocol>
+	void*
+	data(const _Protocol&) noexcept
+	{ return std::addressof(_M_value); }
+
+      template<typename _Protocol>
+	const void*
+	data(const _Protocol&) const noexcept
+	{ return std::addressof(_M_value); }
+
+      template<typename _Protocol>
+	size_t
+	size(const _Protocol&) const noexcept
+	{ return sizeof(_M_value); }
+
+      template<typename _Protocol>
+	void
+	resize(const _Protocol&, size_t __s)
+	{
+	  if (__s != sizeof(_M_value))
+	    __throw_length_error("invalid value for socket option resize");
+	}
+
+    protected:
+      _Tp _M_value { };
+    };
+
+  // Base class for types meeting BooleanSocketOption requirements.
+  template<>
+    struct __sockopt_base<bool> : __sockopt_base<int>
+    {
+      __sockopt_base() = default;
+
+      explicit __sockopt_base(bool __val) : __sockopt_base<int>(__val) { }
+
+      bool value() const noexcept { return __sockopt_base<int>::_M_value; }
+      explicit operator bool() const noexcept { return value(); }
+      bool operator!() const noexcept { return !value(); }
+    };
+
+  template<typename _Derived, typename _Tp = int>
+    struct __sockopt_crtp : __sockopt_base<_Tp>
+    {
+      using __sockopt_base<_Tp>::__sockopt_base;
+
+      _Derived&
+      operator=(_Tp __value)
+      {
+	__sockopt_base<_Tp>::_M_value = __value;
+	return static_cast<_Derived&>(*this);
+      }
+
+      template<typename _Protocol>
+	int
+	level(const _Protocol&) const noexcept
+	{ return _Derived::_S_level; }
+
+      template<typename _Protocol>
+	int
+	name(const _Protocol&) const noexcept
+	{ return _Derived::_S_name; }
+    };
 
   /// @}
 
