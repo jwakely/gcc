@@ -39,7 +39,7 @@
 #include <chrono>
 #include <thread>
 #include <experimental/netfwd>
-#include <experimental/executor> // TODO move execution_service to new header
+#include <experimental/executor>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -68,10 +68,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     // construct / copy / destroy:
 
-    io_context() { }  // TODO
+    io_context() : _M_work_count(0) { }  // TODO
 
     explicit
-    io_context(int __concurrency_hint) { }  // TODO
+    io_context(int __concurrency_hint) : _M_work_count(0) { }  // TODO
 
     io_context(const io_context&) = delete;
     io_context& operator=(const io_context&) = delete;
@@ -213,6 +213,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   private:
 
+    template<typename _Clock, typename _WaitTraits>
+      friend class basic_waitable_timer;
+
     count_type
     _M_outstanding_work() const
     {
@@ -225,12 +228,233 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return __count;
     }
 
-    std::atomic<count_type>	_M_work_count;
+    static size_t
+    _S_next_timer_id()
+    {
+      static atomic<size_t> __id{0};
+      return __id++;
+    }
+
+    struct __wait_queue : execution_context::service
+    {
+      __wait_queue(execution_context& __ctx) : service(__ctx) { }
+
+      __wait_queue(const __wait_queue&) = delete;
+      __wait_queue& operator=(const __wait_queue&) = delete;
+
+      thread		_M_t;
+      mutex		_M_mtx;
+      condition_variable _M_cv;
+      bool		_M_stop;
+    };
+
+    template<typename _Timer, typename _Key = typename _Timer::_Key>
+      struct __timer_queue : __wait_queue
+      {
+	using key_type = __timer_queue;
+
+	__timer_queue(execution_context& __ctx) : __wait_queue(__ctx)
+	{ _M_t = std::thread{&__timer_queue::_M_run, this}; }
+
+	void
+	shutdown() noexcept
+	{
+	  lock_guard<mutex>{_M_mtx}, _M_stop = true;
+	  _M_cv.notify_one();
+	  _M_t.join();
+	}
+
+	// Start an asynchronous wait.
+	void
+	push(const _Timer& __t, function<void(error_code)> __h)
+	{
+	  lock_guard<mutex> __lock(_M_mtx);
+	  _M_queue.emplace(__t, _M_next_id++, std::move(__h));
+	  _M_cv.notify_one();
+	}
+
+	// Cancel all outstanding waits for __t
+	size_t
+	cancel(const _Timer& __t)
+	{
+	  lock_guard<mutex> __lock(_M_mtx);
+	  size_t __count = 0;
+	  auto __ec = make_error_code(std::errc::operation_canceled);
+	  auto __last = _M_queue.end();
+	  for (auto __it = _M_queue.begin(), __end = __last; __it != __end;
+	      ++__it)
+	    {
+	      if (__it->_M_key == __t._M_key.get())
+		{
+		  __it->cancel();
+		  __last = __it;
+		  ++__count;
+		}
+	    }
+	  if (__count)
+	    {
+	      _M_queue._M_sort_to(__last);
+	      _M_cv.notify_one();
+	    }
+	  return __count;
+	}
+
+	// Cancel oldest outstanding wait for __t
+	size_t
+	cancel_one(const _Timer& __t)
+	{
+	  lock_guard<mutex> __lock(_M_mtx);
+	  const auto __end = _M_queue.end();
+	  auto __oldest = __end;
+	  for (auto __it = _M_queue.begin(); __it != __end; ++__it)
+	    if (__it->_M_key == __t._M_key.get())
+	      if (__oldest == __end || __it->_M_id < __oldest->_M_id)
+		__oldest = __it;
+	  if (__oldest == __end)
+	    return 0;
+	  __oldest->cancel();
+	  _M_queue._M_sort_to(__oldest);
+	  _M_cv.notify_one();
+	  return 1;
+	}
+
+      private:
+
+	// TODO instead of separate thread per-timer queue need to fire timers
+	// in main run/run_one/poll/poll_one functions.
+	void
+	_M_run()
+	{
+	  function<void(error_code)> __h;
+	  error_code __ec;
+	  while (true)
+	    {
+	      if (__h)
+		{
+		  __h(__ec);
+		  __h = nullptr;
+		  __ec.clear();
+		}
+
+	      unique_lock<mutex> __lock(_M_mtx);
+
+	      // Block until told to stop or there is a timer set.
+	      _M_cv.wait(__lock,
+			 [this] { return _M_stop || !_M_queue.empty(); });
+
+	      if (_M_stop)
+		return;
+
+	      if (_M_queue.top()._M_key == nullptr)
+		{
+		  __h = std::move(_M_queue.top()._M_h);
+		  __ec = make_error_code(errc::operation_canceled);
+		  _M_queue.pop();
+		}
+	      else
+		{
+		  auto __exp = _M_queue.top()._M_expiry;
+		  if (__exp <= _Timer::clock_type::now())
+		    {
+		      __h = std::move(_M_queue.top()._M_h);
+		      _M_queue.pop();
+		    }
+		  else
+		    {
+		      auto __wd = _Timer::traits_type::to_wait_duration(__exp);
+		      // Sleep until next expiry, or until something changes.
+		      _M_cv.wait_for(__lock, __wd);
+		    }
+		}
+	    }
+	}
+
+	struct __pending_timer
+	{
+	  __pending_timer(const _Timer& __t, uint64_t __id,
+			  function<void(error_code)> __h)
+	  : _M_expiry(__t.expiry()), _M_key(__t._M_key.get()), _M_id(__id),
+	    _M_h(std::move(__h))
+	  { }
+
+	  typename _Timer::time_point _M_expiry;
+	  _Key* _M_key;
+	  uint64_t _M_id;
+	  function<void(error_code)> _M_h;
+
+	  void cancel() { _M_expiry = _M_expiry.min(); _M_key = nullptr; }
+
+	  bool
+	  operator<(const __pending_timer& __rhs) const
+	  { return _M_expiry < __rhs._M_expiry; }
+	};
+
+	struct __queue : priority_queue<__pending_timer>
+	{
+	  using iterator =
+	    typename priority_queue<__pending_timer>::container_type::iterator;
+
+	  // expose begin/end/erase for direct access to underlying container
+	  iterator begin() { return this->c.begin(); }
+	  iterator end() { return this->c.end(); }
+	  iterator erase(iterator __it) { return this->c.erase(__it); }
+
+	  void
+	  _M_sort_to(iterator __it)
+	  { std::stable_sort(this->c.begin(), ++__it); }
+	};
+
+	__queue	_M_queue;
+	uint64_t _M_next_id = 0;
+      };
+
+    template<typename _Timer, typename _CompletionToken>
+      decltype(auto)
+      async_wait(const _Timer& __timer, _CompletionToken&& __token)
+      {
+	auto& __queue = use_service<__timer_queue<_Timer>>(*this);
+	async_completion<_CompletionToken, void(error_code)> __init(__token);
+	__queue.push(__timer, std::move(__init.completion_handler));
+	return __init.result.get();
+      }
+
+    // Cancel all wait operations initiated by __timer.
+    template<typename _Timer>
+      size_t
+      cancel(const _Timer& __timer)
+      {
+	if (!has_service<__timer_queue<_Timer>>(*this))
+	  return 0;
+	return use_service<__timer_queue<_Timer>>(*this).cancel(__timer);
+      }
+
+    // Cancel the oldest wait operation initiated by __timer.
+    template<typename _Timer>
+      size_t
+      cancel_one(const _Timer& __timer)
+      {
+	if (!has_service<__timer_queue<_Timer>>(*this))
+	  return 0;
+	return use_service<__timer_queue<_Timer>>(*this).cancel_one(__timer);
+      }
+
+    atomic<count_type>		_M_work_count;
     mutable mutex		_M_mtx;
     condition_variable		_M_cv;
     queue<function<void()>>	_M_tasks;
     bool			_M_stopped = false;
-    // TODO need priority_queue for timers?
+
+    struct __async_operation
+    {
+    };
+
+    struct __reactor
+    {
+      void _M_add_fd(int);
+      void _M_remove_fd(int);
+      template<typename _WaitTraits>
+	void _M_add_timer_queue();
+    };
   };
 
   /// An executor for an io_context.

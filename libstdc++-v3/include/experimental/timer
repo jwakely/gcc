@@ -108,9 +108,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       basic_waitable_timer(basic_waitable_timer&& __rhs)
       : _M_ex(std::move(__rhs._M_ex)), _M_expiry(__rhs._M_expiry)
       {
-	_M_waiters.swap(__rhs._M_waiters);
+	_M_key.swap(__rhs._M_key);
 	__rhs._M_expiry = time_point{};
-	__rhs.cancel();
       }
 
       ~basic_waitable_timer() { cancel(); }
@@ -126,7 +125,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	_M_ex = std::move(__rhs._M_ex);
 	_M_expiry = __rhs._M_expiry;
 	__rhs._M_expiry = time_point{};
-	_M_waiters->splice(_M_waiters->begin(), *__rhs._M_waiters);
+	_M_key.swap(__rhs._M_key);
 	return *this;
       }
 
@@ -134,10 +133,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       executor_type get_executor() noexcept { return _M_ex; }
 
-      size_t cancel();
-      size_t cancel_one();
+      size_t cancel() { return _M_ex.context().cancel(*this); }
+      size_t cancel_one() { return _M_ex.context().cancel_one(*this); }
 
       time_point expiry() const { return _M_expiry; }
+
       size_t expires_at(const time_point& __t)
       {
 	size_t __cancelled = cancel();
@@ -153,74 +153,30 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _CompletionToken>
 	__deduced_t<_CompletionToken, void(error_code)>
-	async_wait(_CompletionToken&& __token);
+	async_wait(_CompletionToken&& __token)
+	{ return _M_ex.context().async_wait(*this, std::move(__token)); }
 
     private:
-      struct __waiter
-      {
-	explicit
-	__waiter(shared_ptr<atomic_int> __flag) : _M_flag(std::move(__flag))
-	{ }
-
-	__waiter(__waiter&& __other) noexcept
-	: _M_flag(std::move(__other._M_flag))
-	{ }
-
-	~__waiter() { if (_M_flag) _M_finished(); }
-
-	void _M_finished() { *_M_flag = 2; _M_flag = nullptr; }
-
-	bool _M_cancelled() const { return *_M_flag == 1; }
-
-      private:
-	shared_ptr<atomic_int> _M_flag;
-      };
-
-      __waiter
-      _M_new_waiter()
-      {
-	for (auto __it = _M_waiters->begin(), __end = _M_waiters->end();
-	    __it != __end; ++__it)
-	  if (*__it > 1)
-	    {
-	      _M_waiters->splice(_M_waiters->end(), *_M_waiters, __it);
-	      *__it = 0;
-	      return __waiter( { _M_waiters, &*__it } );
-	    }
-	_M_waiters->emplace_back(0);
-	return __waiter( { _M_waiters, &_M_waiters->back() } );
-      }
-
       time_point _M_expiry;
       executor_type _M_ex;
-      shared_ptr<list<atomic_int>> _M_waiters{make_shared<list<atomic_int>>()};
+
+      struct _Key { };
+      unique_ptr<_Key> _M_key{new _Key};
+
+      friend class io_context;
+
+      static size_t
+      _S_id()
+      {
+	static const size_t __id = io_context::_S_next_timer_id();
+	return __id;
+      }
     };
 
   typedef basic_waitable_timer<chrono::system_clock> system_timer;
   typedef basic_waitable_timer<chrono::steady_clock> steady_timer;
   typedef basic_waitable_timer<chrono::high_resolution_clock>
     high_resolution_timer;
-
-  template<typename _Clock, typename _WaitTraits>
-    size_t
-    basic_waitable_timer<_Clock, _WaitTraits>::cancel()
-    {
-      size_t __cancelled = 0;
-      for (auto& __x : *_M_waiters)
-	if (__x == 0 && ++__x == 1)
-	  ++__cancelled;
-      return __cancelled;
-    }
-
-  template<typename _Clock, typename _WaitTraits>
-    size_t
-    basic_waitable_timer<_Clock, _WaitTraits>::cancel_one()
-    {
-      for (auto& __x : *_M_waiters)
-	if (__x == 0 && ++__x == 1)
-	  return 1;
-      return 0;
-    }
 
   template<typename _Clock, typename _WaitTraits>
     void
@@ -239,42 +195,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       _M_ex.dispatch([this] {
 	  while (clock_type::now() < _M_expiry)
 	    this_thread::sleep_for(traits_type::to_wait_duration(_M_expiry));
-      }, _M_waiters->get_allocator());
-    }
-
-  template<typename _Clock, typename _WaitTraits>
-  template<typename _CompletionToken>
-    __deduced_t<_CompletionToken, void(error_code)>
-    basic_waitable_timer<_Clock, _WaitTraits>::
-    async_wait(_CompletionToken&& __token)
-    {
-      using _Signature = void(error_code);
-
-      auto __work1 = net::make_work_guard(_M_ex);
-
-      async_completion<_CompletionToken, _Signature> __init(__token);
-
-      auto __work2 = net::get_associated_executor(__init.completion_handler,
-						  _M_ex);
-
-      _M_ex.post([__status = _M_new_waiter(),
-		  __h = std::move(__init.completion_handler),
-                  __expiry = _M_expiry]() mutable {
-	  error_code __ec;
-	  auto __now = clock_type::now();
-	  while (!__status._M_cancelled() && __now < __expiry)
-	    {
-	      // TODO query io_context for next expiry to find __e
-	      auto __e = std::min(__now + duration(5), __expiry);
-	      this_thread::sleep_for(traits_type::to_wait_duration(__e));
-	      __now = clock_type::now();
-	    }
-	  if (__status._M_cancelled())
-	    __ec = std::make_error_code(errc::operation_canceled);
-	  __status._M_finished();
-	  __h(__ec);
-      }, _M_waiters->get_allocator());
-      return __init.result.get();
+      }, allocator<void>{});
     }
 
   /// @}

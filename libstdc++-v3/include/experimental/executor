@@ -236,7 +236,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 
   /// A scope-guard type to record when work is started and finished.
-  template<class _Executor>
+  template<typename _Executor>
     class executor_work_guard;
 
   // make_work_guard:
@@ -377,10 +377,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       return_type get() {}
     };
 
-  template<typename _CompletionToken, class _Signature>
-    struct async_completion
+  template<typename _CompletionToken, typename _Signature>
+    class async_completion
     {
-    private:
       using __result_type
 	= async_result<decay_t<_CompletionToken>, _Signature>;
 
@@ -505,7 +504,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       bool _M_active;
     };
 
-    std::mutex _M_mutex;
+    mutable std::mutex _M_mutex;
 
     // Sorted in order of beginning of service object lifetime.
     std::list<_ServicePtr> _M_services;
