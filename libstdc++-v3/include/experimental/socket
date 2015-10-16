@@ -282,8 +282,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     static const int max_listen_connections = SOMAXCONN;
 
   protected:
-    socket_base();
-    ~socket_base();
+    socket_base() = default;
+    ~socket_base() = default;
 
     struct __msg_hdr : ::msghdr
     {
@@ -422,7 +422,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	}
     }
 
-    void cancel(error_code& __ec); // TODO
+    void cancel(error_code& __ec) { } // TODO
 
     void
     non_blocking(bool __mode, error_code&)
