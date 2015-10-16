@@ -437,8 +437,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       using endpoint_type = typename protocol_type::endpoint;
 
       explicit
-      __basic_socket_impl(io_context& __ctx)
-      : __base(__ctx), _M_protocol() { }
+      __basic_socket_impl(io_context& __ctx) : __base(__ctx) { }
 
       __basic_socket_impl(__basic_socket_impl&&) = default;
 
@@ -469,6 +468,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  __ec = socket_errc::already_open;
 	else
 	  {
+	    _M_protocol = __protocol;
 	    _M_sockfd = ::socket(__protocol.family(), __protocol.type(),
 				 __protocol.protocol());
 	    if (is_open())
@@ -563,7 +563,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  __ec.clear();
       }
 
-      _Protocol	_M_protocol;
+      _Protocol	_M_protocol{ endpoint_type{}.protocol() };
 
     private:
       void
@@ -1440,11 +1440,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       // construct / copy / destroy:
 
       explicit
-      basic_socket_acceptor(io_context& __ctx) : __base(__ctx) { }
+      basic_socket_acceptor(io_context& __ctx)
+      : __base(__ctx), _M_protocol(endpoint_type{}.protocol()) { }
 
       basic_socket_acceptor(io_context& __ctx,
 			    const protocol_type& __protocol)
-      : __base(__ctx)
+      : __base(__ctx), _M_protocol(__protocol)
       { open(__protocol); }
 
       basic_socket_acceptor(io_context& __ctx, const endpoint_type& __endpoint,
@@ -1459,7 +1460,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       basic_socket_acceptor(io_context& __ctx, const protocol_type& __protocol,
 			    const native_handle_type& __native_acceptor)
-      : basic_socket_acceptor(__ctx)
+      : basic_socket_acceptor(__ctx, __protocol)
       { assign(__protocol, __native_acceptor); }
 
       basic_socket_acceptor(const basic_socket_acceptor&) = delete;
