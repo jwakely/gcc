@@ -274,22 +274,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	{
 	  context().get_executor().on_work_started();
 	  lock_guard<mutex> __lock(_M_qmtx);
-	  if (_M_next_id == numeric_limits<__timer_id_type>::max())
-	    {
-	      // Renumber the queue to avoid _M_next_id wrapping.
-	      vector<__pending_timer*> __timers;
-	      __timers.reserve(_M_queue.size());
-	      for (auto& __t : _M_queue)
-		__timers.push_back(std::addressof(__t));
-	      // Sort by ID.
-	      std::sort(__timers.begin(), __timers.end(),
-		  [](auto __l, auto __r) { return __l->_M_id < __r->_M_id; });
-	      // Assign contiguous IDs from zero.
-	      __timer_id_type __id = 0;
-	      for (auto __t : __timers)
-		__t->_M_id = __id++;
-	      _M_next_id = __id;
-	    }
 	  _M_queue.emplace(__t, _M_next_id++, std::move(__h));
 	}
 
