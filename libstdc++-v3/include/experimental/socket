@@ -792,10 +792,22 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	async_connect(const endpoint_type& __endpoint,
 		      _CompletionToken&& __token); // TODO
 
-      void wait(wait_type __w)
+      void
+      wait(wait_type __w)
       { return wait(__w, __throw_on_error{"basic_socket::wait"}); }
 
-      void wait(wait_type __w, error_code& __ec); // TODO poll
+      void
+      wait(wait_type __w, error_code& __ec)
+      {
+	::pollfd __fd;
+	__fd.fd = native_handle();
+	__fd.events = static_cast<int>(__w);
+	int __res = ::poll(&__fd, 1, -1);
+	if (__res == -1)
+	  __ec.assign(errno, generic_category());
+	else
+	  __ec.clear();
+      }
 
       template<typename _CompletionToken>
 	__deduced_t<_CompletionToken, void(error_code)>
