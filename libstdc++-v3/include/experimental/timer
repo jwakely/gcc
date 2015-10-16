@@ -160,17 +160,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       time_point _M_expiry;
       executor_type _M_ex;
 
-      struct _Key { };
+      struct _Key { };  // TODO move _M_expiry into here?
       unique_ptr<_Key> _M_key{new _Key};
 
       friend class io_context;
-
-      static size_t
-      _S_id()
-      {
-	static const size_t __id = io_context::_S_next_timer_id();
-	return __id;
-      }
     };
 
   typedef basic_waitable_timer<chrono::system_clock> system_timer;

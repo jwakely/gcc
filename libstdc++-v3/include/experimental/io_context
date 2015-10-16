@@ -37,9 +37,15 @@
 
 #include <atomic>
 #include <chrono>
+#include <forward_list>
+#include <functional>
+#include <system_error>
 #include <thread>
 #include <experimental/netfwd>
 #include <experimental/executor>
+#include <unistd.h>
+#include <poll.h>
+#include <fcntl.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -62,26 +68,114 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   public:
     // types:
 
-    class executor_type;
+    /// An executor for an io_context.
+    class executor_type
+    {
+    public:
+      // construct / copy / destroy:
+
+      executor_type(const executor_type& __other) noexcept = default;
+      executor_type(executor_type&& __other) noexcept = default;
+
+      executor_type& operator=(const executor_type& __other) noexcept = default;
+      executor_type& operator=(executor_type&& __other) noexcept = default;
+
+      // executor operations:
+
+      bool running_in_this_thread() const noexcept
+      {
+	lock_guard<mutex> __lock(_M_ctx->_M_mtx);
+	auto __end = _M_ctx->_M_call_stack.end();
+	return std::find(_M_ctx->_M_call_stack.begin(), __end,
+			 this_thread::get_id()) != __end;
+      }
+
+      io_context& context() noexcept { return *_M_ctx; }
+
+      void on_work_started() noexcept { ++_M_ctx->_M_work_count; }
+      void on_work_finished() noexcept { --_M_ctx->_M_work_count; }
+
+      template<typename _Func, typename _ProtoAllocator>
+	void
+	dispatch(_Func&& __f, const _ProtoAllocator& __a)
+	{
+	  if (running_in_this_thread())
+	    decay_t<_Func>{std::forward<_Func>(__f)}();
+	  else
+	    post(std::forward<_Func>(__f), __a);
+	}
+
+      template<typename _Func, typename _ProtoAllocator>
+	void
+	post(_Func&& __f, const _ProtoAllocator& __a)
+	{
+	  lock_guard<mutex> __lock(_M_ctx->_M_mtx);
+	  // _M_ctx->_M_tasks.push({allocator_arg, __a, _S_fwd_copyable<_Func>(__f)});
+	  // _M_ctx->_M_tasks.push(_S_fwd_copyable<_Func>(__f));
+	  // TODO
+	  _M_ctx->_M_reactor._M_notify();
+	}
+
+      template<typename _Func, typename _ProtoAllocator>
+	void
+	defer(_Func&& __f, const _ProtoAllocator& __a)
+	{ post(std::forward<_Func>(__f), __a); }
+
+    private:
+      friend io_context;
+
+      explicit
+      executor_type(io_context& __ctx) : _M_ctx(std::addressof(__ctx)) { }
+
+      template<typename _Func>
+	struct __fake_copyable
+	{
+	  explicit
+	  __fake_copyable(_Func& __f) : _M_f(std::move(__f)) { }
+
+	  __fake_copyable(__fake_copyable&&) = default;
+	  __fake_copyable(const __fake_copyable& __other)
+	  : _M_f(std::move(const_cast<__fake_copyable&>(__other)._M_f))
+	  { __builtin_abort(); }
+
+	  template<typename... _Args>
+	    decltype(auto) operator()(_Args&&... __args)
+	    { return _M_f(std::forward<_Args>(__args)...); }
+
+	  _Func _M_f;
+	};
+
+      template<typename _Func>
+	using __maybe_fake_copyable = conditional_t<
+	  __or_<is_lvalue_reference<_Func>,
+		is_copy_constructible<decay_t<_Func>>>::value,
+	  _Func&&,
+	  __fake_copyable<decay_t<_Func>>>;
+
+      // Wrap a non-copyable callable so it can be stored in std::function.
+      template<typename _Func>
+	static inline __maybe_fake_copyable<_Func>
+	_S_fwd_copyable(_Func& __f)
+	{ return static_cast<__maybe_fake_copyable<_Func>>(__f); }
+
+      io_context* _M_ctx;
+    };
 
     using count_type =  size_t;
 
     // construct / copy / destroy:
 
-    io_context() : _M_work_count(0) { }  // TODO
+    io_context() : _M_work_count(0) { }
 
     explicit
-    io_context(int __concurrency_hint) : _M_work_count(0) { }  // TODO
+    io_context(int __concurrency_hint) : _M_work_count(0) { } 
 
     io_context(const io_context&) = delete;
     io_context& operator=(const io_context&) = delete;
 
     // io_context operations:
 
-    executor_type get_executor() noexcept;
-
-    // TODO need internal _M_run_one, _M_run_one_until, _M_poll_one functions
-    // that add current thread to call stack, modify outstanding work etc.
+    executor_type get_executor() noexcept { return executor_type(*this); }
 
     count_type
     run()
@@ -112,27 +206,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     count_type
     run_one()
-    {
-      __glibcxx_assert(this_thread::get_id() != _M_running_in_thread);
-      if (_M_work_count == 0)
-	{
-	  stop();
-	  return 0;
-	}
-      function<void()> __f;
-      {
-	unique_lock<mutex> __lock(_M_mtx);
-	_M_cv.wait(__lock, [this] {
-	    return _M_stopped || !_M_tasks.empty();
-	});
-	if (_M_stopped)
-	  return 0;
-	__f = std::move(_M_tasks.front());
-	_M_tasks.pop();
-      }
-      __f();
-      return 1;
-    }
+    { return _M_reactor.run_one(*this, chrono::milliseconds{-1}); }
 
     template<typename _Rep, typename _Period>
       count_type
@@ -143,24 +217,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       count_type
       run_one_until(const chrono::time_point<_Clock, _Duration>& __abs_time)
       {
-	if (_M_work_count == 0)
+	auto __now = _Clock::now();
+	while (__now < __abs_time)
 	  {
-	    stop();
-	    return 0;
+	    using namespace std::chrono;
+	    auto __ms = duration_cast<milliseconds>(__abs_time - __now);
+	    if (_M_reactor.run_one(*this, __ms))
+	      return 1;
+	    __now = _Clock::now();
 	  }
-	function<void()> __f;
-	{
-	  unique_lock<mutex> __lock(_M_mtx);
-	  auto __status = _M_cv.wait_until(__lock, __abs_time, [this] {
-	      return _M_stopped || !_M_tasks.empty();
-	  });
-	  if (__status == cv_status::timeout || _M_stopped)
-	    return 0;
-	  __f = std::move(_M_tasks.front());
-	  _M_tasks.pop();
-	}
-	__f();
-	return 1;
+	return 0;
       }
 
     count_type
@@ -175,29 +241,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     count_type
     poll_one()
-    {
-      if (_M_work_count == 0)
-	{
-	  stop();
-	  return 0;
-	}
-      function<void()> __f;
-      {
-	unique_lock<mutex> __lock(_M_mtx);
-	if (_M_tasks.empty())
-	  return 0;
-	__f = std::move(_M_tasks.front());
-	_M_tasks.pop();
-      }
-      __f();
-      return 1;
-    }
+    { return _M_reactor.run_one(*this, chrono::milliseconds{0}); }
 
     void stop()
     {
       lock_guard<mutex> __lock(_M_mtx);
       _M_stopped = true;
-      _M_cv.notify_all();
+      _M_reactor._M_notify();
     }
 
     bool stopped() const noexcept
@@ -218,68 +268,55 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     count_type
     _M_outstanding_work() const
+    { return _M_work_count; }
+
+    struct __timer_queue_base : execution_context::service
     {
-      count_type __count = _M_work_count;
+      // return milliseconds until next timer expires, or milliseconds::max()
+      virtual chrono::milliseconds _M_next() const = 0;
+      virtual bool run_one() = 0;
+
+    protected:
+      explicit
+      __timer_queue_base(execution_context& __ctx) : service(__ctx)
       {
-	lock_guard<mutex> __lock(_M_mtx);
-	__count += _M_tasks.size();
+	auto& __ioc = static_cast<io_context&>(__ctx);
+	lock_guard<mutex> __lock(__ioc._M_mtx);
+	__ioc._M_timers.push_back(this);
       }
-      // TODO __count += no. running tasks
-      return __count;
-    }
 
-    static size_t
-    _S_next_timer_id()
-    {
-      static atomic<size_t> __id{0};
-      return __id++;
-    }
-
-    struct __wait_queue : execution_context::service
-    {
-      __wait_queue(execution_context& __ctx) : service(__ctx) { }
-
-      __wait_queue(const __wait_queue&) = delete;
-      __wait_queue& operator=(const __wait_queue&) = delete;
-
-      thread		_M_t;
-      mutex		_M_mtx;
-      condition_variable _M_cv;
-      bool		_M_stop;
+      mutable mutex	_M_qmtx;
     };
 
     template<typename _Timer, typename _Key = typename _Timer::_Key>
-      struct __timer_queue : __wait_queue
+      struct __timer_queue : __timer_queue_base
       {
 	using key_type = __timer_queue;
 
-	__timer_queue(execution_context& __ctx) : __wait_queue(__ctx)
-	{ _M_t = std::thread{&__timer_queue::_M_run, this}; }
+	explicit
+	__timer_queue(execution_context& __ctx) : __timer_queue_base(__ctx)
+	{ }
 
-	void
-	shutdown() noexcept
-	{
-	  lock_guard<mutex>{_M_mtx}, _M_stop = true;
-	  _M_cv.notify_one();
-	  _M_t.join();
-	}
+	void shutdown() noexcept { }
+
+	io_context& context() noexcept
+	{ return static_cast<io_context&>(service::context()); }
 
 	// Start an asynchronous wait.
 	void
 	push(const _Timer& __t, function<void(error_code)> __h)
 	{
-	  lock_guard<mutex> __lock(_M_mtx);
+	  context().get_executor().on_work_started();
+	  lock_guard<mutex> __lock(_M_qmtx);
 	  _M_queue.emplace(__t, _M_next_id++, std::move(__h));
-	  _M_cv.notify_one();
 	}
 
 	// Cancel all outstanding waits for __t
 	size_t
 	cancel(const _Timer& __t)
 	{
-	  lock_guard<mutex> __lock(_M_mtx);
+	  lock_guard<mutex> __lock(_M_qmtx);
 	  size_t __count = 0;
-	  auto __ec = make_error_code(std::errc::operation_canceled);
 	  auto __last = _M_queue.end();
 	  for (auto __it = _M_queue.begin(), __end = __last; __it != __end;
 	      ++__it)
@@ -292,18 +329,15 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		}
 	    }
 	  if (__count)
-	    {
-	      _M_queue._M_sort_to(__last);
-	      _M_cv.notify_one();
-	    }
+	    _M_queue._M_sort_to(__last);
 	  return __count;
 	}
 
 	// Cancel oldest outstanding wait for __t
-	size_t
+	bool
 	cancel_one(const _Timer& __t)
 	{
-	  lock_guard<mutex> __lock(_M_mtx);
+	  lock_guard<mutex> __lock(_M_qmtx);
 	  const auto __end = _M_queue.end();
 	  auto __oldest = __end;
 	  for (auto __it = _M_queue.begin(); __it != __end; ++__it)
@@ -311,62 +345,57 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	      if (__oldest == __end || __it->_M_id < __oldest->_M_id)
 		__oldest = __it;
 	  if (__oldest == __end)
-	    return 0;
+	    return false;
 	  __oldest->cancel();
 	  _M_queue._M_sort_to(__oldest);
-	  _M_cv.notify_one();
-	  return 1;
+	  return true;
+	}
+
+	chrono::milliseconds
+	_M_next() const override
+	{
+	  typename _Timer::time_point __exp;
+	  {
+	    lock_guard<mutex> __lock(_M_qmtx);
+	    if (_M_queue.empty())
+	      return chrono::milliseconds::max();
+	    __exp = _M_queue.top()._M_expiry;
+	  }
+	  auto __dur = _Timer::traits_type::to_wait_duration(__exp);
+	  if (__dur < __dur.zero())
+	    __dur = __dur.zero();
+	  return chrono::duration_cast<chrono::milliseconds>(__dur);
 	}
 
       private:
 
-	// TODO instead of separate thread per-timer queue need to fire timers
-	// in main run/run_one/poll/poll_one functions.
-	void
-	_M_run()
+	bool run_one() override
 	{
+	  auto __now = _Timer::clock_type::now();
 	  function<void(error_code)> __h;
 	  error_code __ec;
-	  while (true)
+	  {
+	    lock_guard<mutex> __lock(_M_qmtx);
+
+	    if (_M_queue.top()._M_key == nullptr) // cancelled
+	      {
+		__h = std::move(_M_queue.top()._M_h);
+		__ec = make_error_code(errc::operation_canceled);
+		_M_queue.pop();
+	      }
+	    else if (_M_queue.top()._M_expiry <= _Timer::clock_type::now())
+	      {
+		__h = std::move(_M_queue.top()._M_h);
+		_M_queue.pop();
+	      }
+	  }
+	  if (__h)
 	    {
-	      if (__h)
-		{
-		  __h(__ec);
-		  __h = nullptr;
-		  __ec.clear();
-		}
-
-	      unique_lock<mutex> __lock(_M_mtx);
-
-	      // Block until told to stop or there is a timer set.
-	      _M_cv.wait(__lock,
-			 [this] { return _M_stop || !_M_queue.empty(); });
-
-	      if (_M_stop)
-		return;
-
-	      if (_M_queue.top()._M_key == nullptr)
-		{
-		  __h = std::move(_M_queue.top()._M_h);
-		  __ec = make_error_code(errc::operation_canceled);
-		  _M_queue.pop();
-		}
-	      else
-		{
-		  auto __exp = _M_queue.top()._M_expiry;
-		  if (__exp <= _Timer::clock_type::now())
-		    {
-		      __h = std::move(_M_queue.top()._M_h);
-		      _M_queue.pop();
-		    }
-		  else
-		    {
-		      auto __wd = _Timer::traits_type::to_wait_duration(__exp);
-		      // Sleep until next expiry, or until something changes.
-		      _M_cv.wait_for(__lock, __wd);
-		    }
-		}
+	      __h(__ec);
+	      context().get_executor().on_work_finished();
+	      return true;
 	    }
+	  return false;
 	}
 
 	struct __pending_timer
@@ -415,6 +444,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	auto& __queue = use_service<__timer_queue<_Timer>>(*this);
 	async_completion<_CompletionToken, void(error_code)> __init(__token);
 	__queue.push(__timer, std::move(__init.completion_handler));
+	_M_reactor._M_notify();
 	return __init.result.get();
       }
 
@@ -425,7 +455,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       {
 	if (!has_service<__timer_queue<_Timer>>(*this))
 	  return 0;
-	return use_service<__timer_queue<_Timer>>(*this).cancel(__timer);
+
+	auto __c = use_service<__timer_queue<_Timer>>(*this).cancel(__timer);
+	if (__c != 0)
+	  _M_reactor._M_notify();
+	return __c;
       }
 
     // Cancel the oldest wait operation initiated by __timer.
@@ -435,122 +469,266 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       {
 	if (!has_service<__timer_queue<_Timer>>(*this))
 	  return 0;
-	return use_service<__timer_queue<_Timer>>(*this).cancel_one(__timer);
-      }
 
-    atomic<count_type>		_M_work_count;
-    mutable mutex		_M_mtx;
-    condition_variable		_M_cv;
-    queue<function<void()>>	_M_tasks;
-    bool			_M_stopped = false;
+	if (use_service<__timer_queue<_Timer>>(*this).cancel_one(__timer))
+	  {
+	    _M_reactor._M_notify();
+	    return 1;
+	  }
+	return 0;
+      }
 
     struct __async_operation
     {
+      int _M_fd;
+      short _M_ev;
+      void cancel() { _M_ev = -1; }
+      virtual void run() = 0;
+    };
+
+    template<typename _CompletionHandler>
+      struct __async_operation_impl : __async_operation
+      {
+	function<void(_CompletionHandler)> _M_op;
+	_CompletionHandler _M_h;
+
+	void run()
+	{
+	  if (_M_ev = -1)
+	    _M_h(std::make_error_code(std::errc::operation_canceled), 0);
+	  else
+	    _M_op(std::move(_M_h));
+	}
+      };
+
+    atomic<count_type>		_M_work_count;
+    mutable mutex		_M_mtx;
+    queue<function<void()>>	_M_op;
+    bool			_M_stopped = false;
+
+    struct __monitor
+    {
+      __monitor(io_context& __c) : _M_ctx(__c)
+      {
+	lock_guard<mutex> __lock(_M_ctx._M_mtx);
+	_M_ctx._M_call_stack.push_back(this_thread::get_id());
+      }
+
+      ~__monitor()
+      {
+	lock_guard<mutex> __lock(_M_ctx._M_mtx);
+	_M_ctx._M_call_stack.pop_back();
+	if (_M_ctx._M_work_count == 0)
+	  _M_ctx.stop();
+      }
+
+      __monitor(__monitor&&) = delete;
+
+      io_context& _M_ctx;
     };
 
     struct __reactor
     {
       void _M_add_fd(int);
       void _M_remove_fd(int);
-      template<typename _WaitTraits>
-	void _M_add_timer_queue();
+
+      __reactor() : _M_fds(1)
+      {
+	int __pipe[2];
+	if (::pipe(__pipe) == -1)
+	  __throw_system_error(errno);
+	if (::fcntl(__pipe[0], F_SETFL, O_NONBLOCK) == -1
+	    || ::fcntl(__pipe[1], F_SETFL, O_NONBLOCK) == -1)
+	  {
+	    int __e = errno;
+	    ::close(__pipe[0]);
+	    ::close(__pipe[1]);
+	    __throw_system_error(__e);
+	  }
+	_M_notify_rd = __pipe[0];
+	_M_notify_wr = __pipe[1];
+
+	// Add to the pollfd array
+	_M_fds[0].fd = _M_notify_rd;
+      }
+
+      ~__reactor()
+      {
+	::close(_M_notify_rd);
+	::close(_M_notify_wr);
+      }
+
+      // write a notification byte to the pipe (ignoring errors)
+      void _M_notify()
+      {
+	int __n;
+	do {
+	  __n = ::write(_M_notify_wr, "", 1);
+	} while (__n == -1 && errno == EINTR);
+      }
+
+      // read all notification bytes from the pipe
+      void _M_on_notify()
+      {
+	// Drain the pipe.
+	char __buf[64];
+	ssize_t __n;
+	do {
+	  __n = ::read(_M_notify_rd, __buf, sizeof(__buf));
+	} while (__n == sizeof(__buf) || (__n == -1 && errno == EINTR));
+      }
+
+      bool
+      run_one(io_context& __ctx, chrono::milliseconds __timeout)
+      {
+	const bool __block = __timeout != chrono::milliseconds::zero();
+
+	vector<struct pollfd> __fds;
+	__fds.reserve(_M_fds.size());
+
+	__monitor __mon{__ctx};
+
+	__timer_queue_base* __timerq = nullptr;
+	unique_ptr<__async_operation> __async_op;
+
+	while (true)
+	  {
+	    if (__timerq)
+	      {
+		if (__timerq->run_one())
+		  return true;
+		else
+		  __timerq = nullptr;
+	      }
+
+	    if (__async_op)
+	      {
+		__async_op->run();
+		return true;
+	      }
+
+	    chrono::milliseconds __ms{0};
+
+	    {
+	      lock_guard<mutex> __lock(__ctx._M_mtx);
+
+	      if (__ctx._M_stopped)
+		return false;
+
+	      if (_M_fds.size() < 2 && __ctx._M_timers.empty())
+		return false;
+
+	      // find first timer with something to do
+	      // TODO move this outside reactor, into context function that
+	      // finds shortest timeout, then calls reactor with that.
+	      for (auto __q : __ctx._M_timers)
+		{
+		  auto __next = __q->_M_next();
+		  if (__next == __next.zero())  // ready to run immediately
+		    {
+		      __timerq = __q;
+		      __ms = __next;
+		      break;
+		    }
+		  else if (__next != __next.max() && __block
+		      && (__next < __ms || __timerq == nullptr))
+		    {
+		      __timerq = __q;
+		      __ms = __next;
+		    }
+		}
+
+	      if (__timerq && __ms == __ms.zero())
+		continue;  // restart loop to run a timer immediately
+
+	      if (__block)
+		{
+		  if (__timerq == nullptr)
+		    {
+		      if (_M_fds.size() < 2)  // nothing to wait for
+			return false;
+		      __ms = __timeout;
+		    }
+		  else if (__ms.zero() <= __timeout && __timeout < __ms)
+		    __ms = __timeout;
+		  else if (__ms.count() > numeric_limits<int>::max())
+		    __ms = chrono::milliseconds{numeric_limits<int>::max()};
+		}
+	      // else __ms == 0 and poll() will return immediately
+
+	      __fds = _M_fds;  // take snapshot to pass to poll()
+	    }
+
+	    int __res = ::poll(__fds.data(), __fds.size(), __ms.count());
+
+	    if (__res == -1)
+	      {
+		if (errno == EINTR)
+		  continue;
+		return false; // XXX ???
+	      }
+	    else if (__res == 0)  // timed out
+	      {
+		if (!__timerq)
+		  return false;
+	      }
+	    else if (__fds[0].revents != 0) // something changed, restart
+	      {
+		_M_on_notify();
+	      }
+	    else
+	      {
+		auto __part = std::partition(__fds.begin(), __fds.end(),
+		    [](const ::pollfd __p) { return __p.revents != 0; });
+		__fds.erase(__part, __fds.end());
+
+		// TODO return __fds and do the rest of the work outside
+		// the reactor
+
+		lock_guard<mutex> __lock(__ctx._M_mtx);
+		auto& __ops = __ctx._M_ops;
+		for (auto __op = __ops.begin(), __end = __ops.end(),
+		    __prev = __ops.before_begin();
+		    __op != __end;
+		    ++__op, ++__prev)
+		  {
+		    auto __fd = std::find_if(__fds.begin(), __fds.end(),
+			[&](const ::pollfd& __p) {
+			    return __p.fd == (*__op)->_M_fd
+			      && __p.revents & (*__op)->_M_ev;
+			});
+		    if (__fd != __fds.end())
+		      {
+			__op->swap(__async_op);
+			__ctx._M_ops.erase_after(__prev);
+			break;
+		      }
+		  }
+	      }
+	  }
+      }
+
+      vector<struct pollfd> _M_fds;
+      int _M_notify_rd;
+      int _M_notify_wr;
     };
+    __reactor _M_reactor;
+
+    vector<__timer_queue_base*>			_M_timers;
+    forward_list<unique_ptr<__async_operation>>	_M_ops;
+
+    vector<thread::id>	_M_call_stack;
   };
-
-  /// An executor for an io_context.
-  class io_context::executor_type
-  {
-  public:
-    // construct / copy / destroy:
-
-    executor_type(const executor_type& __other) noexcept = default;
-    executor_type(executor_type&& __other) noexcept = default;
-
-    executor_type& operator=(const executor_type& __other) noexcept = default;
-    executor_type& operator=(executor_type&& __other) noexcept = default;
-
-    // executor operations:
-
-    bool running_in_this_thread() const noexcept; // TODO
-
-    // XXX const? https://github.com/chriskohlhoff/asio-tr2/issues/201
-    io_context& context() const noexcept { return *_M_ctx; }
-
-    void on_work_started() noexcept { ++_M_ctx->_M_work_count; }
-    void on_work_finished() noexcept { --_M_ctx->_M_work_count; }
-
-    template<typename _Func, typename _ProtoAllocator>
-      void
-      dispatch(_Func&& __f, const _ProtoAllocator& __a)
-      {
-	if (running_in_this_thread())
-	  decay_t<_Func>{std::forward<_Func>(__f)}();
-	else
-	  post(std::forward<_Func>(__f), __a);
-      }
-
-    template<typename _Func, typename _ProtoAllocator>
-      void
-      post(_Func&& __f, const _ProtoAllocator& __a)
-      {
-	lock_guard<mutex> __lock(_M_ctx->_M_mtx);
-	// _M_ctx->_M_tasks.push({allocator_arg, __a, _S_fwd_copyable<_Func>(__f)});
-	_M_ctx->_M_tasks.push(_S_fwd_copyable<_Func>(__f));
-	_M_ctx->_M_cv.notify_one();
-      }
-
-    template<typename _Func, typename _ProtoAllocator>
-      void
-      defer(_Func&& __f, const _ProtoAllocator& __a)
-      { post(std::forward<_Func>(__f), __a); }
-
-  private:
-    friend io_context;
-
-    explicit
-    executor_type(io_context& __ctx) : _M_ctx(std::addressof(__ctx)) { }
-
-    template<typename _Func>
-      struct __fake_copyable
-      {
-	explicit
-	__fake_copyable(_Func& __f) : _M_f(std::move(__f)) { }
-
-	__fake_copyable(__fake_copyable&&) = default;
-	__fake_copyable(const __fake_copyable& __other)
-	: _M_f(std::move(const_cast<__fake_copyable&>(__other)._M_f))
-	{ __builtin_abort(); }
-
-	template<typename... _Args>
-	  decltype(auto) operator()(_Args&&... __args)
-	  { return _M_f(std::forward<_Args>(__args)...); }
-
-	_Func _M_f;
-      };
-
-    template<typename _Func>
-      using __maybe_fake_copyable = conditional_t<
-	__or_<is_lvalue_reference<_Func>,
-	      is_copy_constructible<decay_t<_Func>>>::value,
-	_Func&&,
-	__fake_copyable<decay_t<_Func>>>;
-
-    // Wrap a non-copyable callable so it can be stored in std::function.
-    template<typename _Func>
-      static inline __maybe_fake_copyable<_Func>
-      _S_fwd_copyable(_Func& __f)
-      { return static_cast<__maybe_fake_copyable<_Func>>(__f); }
-
-    io_context* _M_ctx;
-  };
-
-  inline io_context::executor_type
-  io_context::get_executor() noexcept { return executor_type{*this}; }
 
   inline bool
   operator==(const io_context::executor_type& __a,
 	     const io_context::executor_type& __b) noexcept
-  { return std::addressof(__a.context()) == std::addressof(__b.context()); }
+  {
+    // https://github.com/chriskohlhoff/asio-tr2/issues/201
+    using executor_type = io_context::executor_type;
+    return std::addressof(executor_type(__a).context())
+      == std::addressof(executor_type(__b).context());
+  }
 
   inline bool
   operator!=(const io_context::executor_type& __a,
