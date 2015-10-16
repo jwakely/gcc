@@ -31,6 +31,7 @@ test01()
 
   io_context ctx;
   error_code ec;
+  bool complete = false;
 
   auto then = system_timer::clock_type::now() + system_timer::duration(100);
 
@@ -38,15 +39,20 @@ test01()
   VERIFY( timer.cancel_one() == 0 );
   VERIFY( timer.cancel() == 0 );
 
-  timer.async_wait([&ec](error_code e) { ec = e; });
+  timer.async_wait([&](error_code e) { ec = e; complete = true; });
   VERIFY( timer.cancel_one() == 1 );
+  VERIFY( !complete );
+
   VERIFY( timer.cancel_one() == 0 );
   VERIFY( timer.cancel() == 0 );
-  VERIFY( ec == std::errc::operation_canceled );
 
-  VERIFY( ctx.run() == 0 );
+  VERIFY( ctx.run() == 1 );
   VERIFY( ctx.stopped() );
+  VERIFY( complete );
+  VERIFY( ec == std::errc::operation_canceled );
 }
+
+#include <iostream>
 
 void
 test02()
@@ -56,9 +62,9 @@ test02()
   io_context ctx;
   error_code ec1, ec2;
 
-  auto now = system_timer::clock_type::now();
-  auto t1 = now + system_timer::duration(100);
-  auto t2 = t1 + system_timer::duration(100);
+  const auto now = system_timer::clock_type::now();
+  const auto t1 = now + std::chrono::seconds(100);
+  const auto t2 = t1 + std::chrono::seconds(100);
 
   system_timer timer(ctx, t1);
   VERIFY( timer.expiry() == t1 );
@@ -68,20 +74,31 @@ test02()
 
   timer.async_wait([&ec1](error_code e) { ec1 = e; });
   timer.async_wait([&ec2](error_code e) { ec2 = e; });
-  VERIFY( timer.expires_at(t1) == 2 );
+  auto n = timer.expires_at(t1);
+  std::cout << n << '\n';
+  std::cout << t1.time_since_epoch().count() << '\n';
+  std::cout << timer.expiry().time_since_epoch().count() << std::endl;
+  VERIFY( n == 2 );
   VERIFY( timer.expiry() == t1 );
+
+  VERIFY( ctx.run_one() == 1 );
+  VERIFY( ! ctx.stopped() );
+  VERIFY( ctx.run_one() == 1 );
+  VERIFY( ctx.stopped() );
   VERIFY( ec1 == std::errc::operation_canceled );
   VERIFY( ec2 == std::errc::operation_canceled );
 
-  VERIFY( timer.expires_after(system_timer::duration(50)) == 0 );
+  VERIFY( timer.expires_after(std::chrono::seconds(50)) == 0 );
   VERIFY( timer.expiry() < t1 );
 
   ec1.clear();
   ec2.clear();
+  ctx.restart();
   timer.async_wait([&ec1](error_code e) { ec1 = e; });
   timer.async_wait([&ec2](error_code e) { ec2 = e; });
-  VERIFY( timer.expires_after(system_timer::duration(10)) == 2 );
+  VERIFY( timer.expires_after(std::chrono::seconds(10)) == 2 );
   VERIFY( timer.expiry() < t1 );
+  ctx.run();
   VERIFY( ec1 == std::errc::operation_canceled );
   VERIFY( ec2 == std::errc::operation_canceled );
 }

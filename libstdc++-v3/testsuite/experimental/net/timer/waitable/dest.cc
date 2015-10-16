@@ -36,6 +36,7 @@ test01()
     timer.async_wait([&ec](std::error_code e) { ec = e; });
   }
   auto n = ctx.run();
+  __builtin_printf("ran %lu\n", n);
   VERIFY( n == 1 );
   VERIFY( ec == std::errc::operation_canceled );
 }
