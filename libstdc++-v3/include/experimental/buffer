@@ -360,12 +360,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _Tp, size_t _Nm>
     inline const_buffer
     buffer(const _Tp (&__data)[_Nm]) noexcept
-    { return net::__to_cbuf(__data.data(), __data.size()); }
+    { return net::__to_cbuf(__data, _Nm); }
 
   template<typename _Tp, size_t _Nm>
     inline mutable_buffer
     buffer(array<_Tp, _Nm>& __data) noexcept
-    { return net::__to_mbuf(__data, _Nm); }
+    { return net::__to_mbuf(__data.data(), _Nm); }
 
   template<typename _Tp, size_t _Nm>
     inline const_buffer
@@ -390,7 +390,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _CharT, typename _Traits, typename _Allocator>
     inline mutable_buffer
     buffer(basic_string<_CharT, _Traits, _Allocator>& __data) noexcept
-    { return net::__to_mbuf(__data.data(), __data.size()); }
+    { return net::__to_mbuf(&__data.front(), __data.size()); }
 
   template<typename _CharT, typename _Traits>
     inline const_buffer
@@ -400,48 +400,48 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _Tp, size_t _Nm>
     inline mutable_buffer
     buffer(_Tp (&__data)[_Nm], size_t __n) noexcept
-    { return buffer(net::buffer(__data), __n); }
+    { return buffer(net::buffer(__data), __n * sizeof(_Tp)); }
 
   template<typename _Tp, size_t _Nm>
     inline const_buffer
     buffer(const _Tp (&__data)[_Nm], size_t __n) noexcept
-    { return buffer(net::buffer(__data), __n); }
+    { return buffer(net::buffer(__data), __n * sizeof(_Tp)); }
 
   template<typename _Tp, size_t _Nm>
     inline mutable_buffer
     buffer(array<_Tp, _Nm>& __data, size_t __n) noexcept
-    { return buffer(net::buffer(__data), __n); }
+    { return buffer(net::buffer(__data), __n * sizeof(_Tp)); }
 
   template<typename _Tp, size_t _Nm>
     inline const_buffer
     buffer(array<const _Tp, _Nm>& __data, size_t __n) noexcept
-    { return buffer(net::buffer(__data), __n); }
+    { return buffer(net::buffer(__data), __n * sizeof(_Tp)); }
 
   template<typename _Tp, size_t _Nm>
     inline const_buffer
     buffer(const array<_Tp, _Nm>& __data, size_t __n) noexcept
-    { return buffer(net::buffer(__data), __n); }
+    { return buffer(net::buffer(__data), __n * sizeof(_Tp)); }
 
   template<typename _Tp, typename _Allocator>
     inline mutable_buffer
     buffer(vector<_Tp, _Allocator>& __data, size_t __n) noexcept
-    { return buffer(net::buffer(__data), __n); }
+    { return buffer(net::buffer(__data), __n * sizeof(_Tp)); }
 
   template<typename _Tp, typename _Allocator>
     inline const_buffer
     buffer(const vector<_Tp, _Allocator>& __data, size_t __n) noexcept
-    { return buffer(net::buffer(__data), __n); }
+    { return buffer(net::buffer(__data), __n * sizeof(_Tp)); }
 
   template<typename _CharT, typename _Traits, typename _Allocator>
     inline mutable_buffer
     buffer(basic_string<_CharT, _Traits, _Allocator>& __data,
 	   size_t __n) noexcept
-    { return buffer(net::buffer(__data), __n); }
+    { return buffer(net::buffer(__data), __n * sizeof(_CharT)); }
 
   template<typename _CharT, typename _Traits>
     inline const_buffer
     buffer(basic_string_view<_CharT, _Traits> __data, size_t __n) noexcept
-    { return buffer(net::buffer(__data), __n); }
+    { return buffer(net::buffer(__data), __n * sizeof(_CharT)); }
 
 
   template<typename _Sequence>
