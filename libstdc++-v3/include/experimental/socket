@@ -455,7 +455,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   };
 
   template<typename _Protocol>
-    class __basic_socket_impl : __socket_impl
+    class __basic_socket_impl : public __socket_impl
     {
       using __base = __socket_impl;
 
