@@ -919,7 +919,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     system_executor() { }
 
-    execution_context& context() noexcept { return system_context::_S_get(); }
+    system_context& context() noexcept { return system_context::_S_get(); }
 
     void on_work_started() noexcept { }
     void on_work_finished() noexcept { }
@@ -1232,8 +1232,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     inline __deduced_t<_CompletionToken, void()>
     dispatch(_CompletionToken&& __token)
     {
-      using _Completion = async_completion<_CompletionToken, void()>;
-      _Completion __cmpl{forward<_CompletionToken>(__token)};
+      async_completion<_CompletionToken, void()> __cmpl{__token};
       auto __ex = net::get_associated_executor(__cmpl.completion_handler);
       auto __alloc = net::get_associated_allocator(__cmpl.completion_handler);
       __ex.dispatch(std::move(__cmpl.completion_handler), __alloc);
@@ -1246,8 +1245,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		__deduced_t<_CompletionToken, void()>>
     dispatch(const _Executor& __ex, _CompletionToken&& __token)
     {
-      using _Completion = async_completion<_CompletionToken, void()>;
-      _Completion __cmpl{forward<_CompletionToken>(__token)};
+      async_completion<_CompletionToken, void()> __cmpl{__token};
       auto __alloc = net::get_associated_allocator(__cmpl.completion_handler);
       __ex.dispatch(net::__make_dispatcher(__cmpl.completion_handler),
 		    __alloc);
@@ -1270,8 +1268,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     inline __deduced_t<_CompletionToken, void()>
     post(_CompletionToken&& __token)
     {
-      using _Completion = async_completion<_CompletionToken, void()>;
-      _Completion __cmpl{forward<_CompletionToken>(__token)};
+      async_completion<_CompletionToken, void()> __cmpl{__token};
       auto __ex = net::get_associated_executor(__cmpl.completion_handler);
       auto __alloc = net::get_associated_allocator(__cmpl.completion_handler);
       __ex.post(std::move(__cmpl.completion_handler), __alloc);
@@ -1284,8 +1281,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		__deduced_t<_CompletionToken, void()>>
     post(const _Executor& __ex, _CompletionToken&& __token)
     {
-      using _Completion = async_completion<_CompletionToken, void()>;
-      _Completion __cmpl{forward<_CompletionToken>(__token)};
+      async_completion<_CompletionToken, void()> __cmpl{__token};
       auto __alloc = net::get_associated_allocator(__cmpl.completion_handler);
       __ex.post(net::__make_dispatcher(__cmpl.completion_handler), __alloc);
       return __cmpl.result.get();
@@ -1307,8 +1303,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     inline __deduced_t<_CompletionToken, void()>
     defer(_CompletionToken&& __token)
     {
-      using _Completion = async_completion<_CompletionToken, void()>;
-      _Completion __cmpl{forward<_CompletionToken>(__token)};
+      async_completion<_CompletionToken, void()> __cmpl{__token};
       auto __ex = net::get_associated_executor(__cmpl.completion_handler);
       auto __alloc = net::get_associated_allocator(__cmpl.completion_handler);
       __ex.defer(std::move(__cmpl.completion_handler), __alloc);
@@ -1321,8 +1316,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		__deduced_t<_CompletionToken, void()>>
     defer(const _Executor& __ex, _CompletionToken&& __token)
     {
-      using _Completion = async_completion<_CompletionToken, void()>;
-      _Completion __cmpl{forward<_CompletionToken>(__token)};
+      async_completion<_CompletionToken, void()> __cmpl{__token};
       auto __alloc = net::get_associated_allocator(__cmpl.completion_handler);
       __ex.defer(net::__make_dispatcher(__cmpl.completion_handler), __alloc);
       return __cmpl.result.get();
