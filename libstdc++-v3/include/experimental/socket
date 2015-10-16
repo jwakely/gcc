@@ -584,7 +584,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       void
       bind(const endpoint_type& __endpoint, error_code& __ec)
       {
-	if (::bind(_M_sockfd, __endpoint.data(), __endpoint.size()) == -1)
+	if (::bind(_M_sockfd, (sockaddr*)__endpoint.data(), __endpoint.size())
+	    == -1)
 	  __ec.assign(errno, generic_category());
 	else
 	  __ec.clear();
