@@ -219,10 +219,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     static constexpr uint32_t _S_ntoh(uint32_t __n) { return __n; }
 #else
     static constexpr uint16_t
-    _S_hton(uint16_t __h) { return __builtin_bswap32(__h); }
+    _S_hton(uint16_t __h) { return __builtin_bswap16(__h); }
 
     static constexpr uint16_t
-    _S_ntoh(uint16_t __n) { return __builtin_bswap32(__n); }
+    _S_ntoh(uint16_t __n) { return __builtin_bswap16(__n); }
 
     static constexpr uint32_t
     _S_hton(uint32_t __h) { return __builtin_bswap32(__h); }
@@ -1380,7 +1380,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 			  || __proto == protocol_type::v6());
 
 	_M_data._M_v4.sin_family = __proto.family();
-	_M_data._M_v4.sin_port = __port_num;
+	_M_data._M_v4.sin_port = address_v4::_S_hton(__port_num);
       }
 
       constexpr
@@ -1391,14 +1391,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	if (__addr.is_v4())
 	  {
 	    _M_data._M_v4.sin_family = protocol_type::v4().family();
-	    _M_data._M_v4.sin_port = __port_num;
+	    _M_data._M_v4.sin_port = address_v4::_S_hton(__port_num);
 	    _M_data._M_v4.sin_addr.s_addr = __addr._M_v4._M_addr;
 	  }
 	else
 	  {
 	    _M_data._M_v6 = {};
 	    _M_data._M_v6.sin6_family = protocol_type::v6().family();
-	    _M_data._M_v6.sin6_port = __port_num;
+	    _M_data._M_v6.sin6_port = address_v4::_S_hton(__port_num);
 	    std::memcpy(_M_data._M_v6.sin6_addr.s6_addr,
 			__addr._M_v6._M_bytes.data(), 16);
 	    _M_data._M_v6.sin6_scope_id = __addr._M_v6._M_scope_id;
