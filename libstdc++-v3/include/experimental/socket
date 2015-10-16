@@ -67,7 +67,26 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     not_found = 4
   };
 
-  const error_category& socket_category() noexcept;
+  const error_category& socket_category() noexcept
+  {
+    struct __cat : error_category
+    {
+      const char* name() const noexcept { return "socket"; }
+
+      std::string message(int __e) const
+      {
+	if (__e == (int)socket_errc::already_open)
+	  return "already open";
+	else if (__e == (int)socket_errc::not_found)
+	  return "endpoint not found";
+	return "socket error";
+      }
+
+      virtual void __message(int) { } // TODO dual ABI XXX
+    };
+    static __cat __c;
+    return __c;
+  }
 
   inline error_code
   make_error_code(socket_errc __e) noexcept

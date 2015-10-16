@@ -82,7 +82,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   {
     struct __cat : error_category
     {
-      const char* name() const noexcept { return "IP resolver"; }
+      const char* name() const noexcept { return "resolver"; }
       std::string message(int __e) const { return ::gai_strerror(__e); }
       virtual void __message(int) { } // TODO dual ABI XXX
     };
