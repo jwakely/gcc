@@ -266,34 +266,61 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     socket_base();
     ~socket_base();
 
-    static auto _S_iov_max()
+    struct __msg_hdr : ::msghdr
     {
 #ifdef IOV_MAX
-      return IOV_MAX;
+      using __iovec_array = array<::iovec, IOV_MAX>;
 #elif _GLIBCXX_HAVE_UNISTD_H
-      static const auto __iov_max = ::sysconf(_SC_IOV_MAX);
-      return __iov_max;
-#else
-      return 16;
-#endif
-    }
-
-    template<size_t _Nm, typename _BufferSequence>
-      static size_t
-      _S_fill(::iovec (&__iov)[_Nm], const _BufferSequence& __buffers)
+      struct __iovec_array
       {
-	auto __buf = net::buffer_sequence_begin(__buffers);
-	const auto __bufend = net::buffer_sequence_end(__buffers);
-	size_t __len = 0;
-	while (__buf != __bufend && __len != _Nm)
-	  {
-	    __iov[__len].iov_base = __buf->data();
-	    __iov[__len].iov_len = __buf->size();
-	    ++__buf;
-	    ++__len;
-	  }
-	return __len;
-      }
+	__iovec_array() : _M_ptr(new ::iovec[size()]) { }
+
+	::iovec& operator[](size_t __n) noexcept { return _M_ptr[__n]; }
+
+	::iovec* data() noexcept { return _M_ptr.get(); }
+
+	static size_t size()
+	{
+	  static const size_t __iov_max = ::sysconf(_SC_IOV_MAX);
+	  return __iov_max;
+	}
+
+      private:
+	unique_ptr<::iovec[]> _M_ptr;
+      };
+#else
+      using __iovec_array = array<::iovec, 16>;
+#endif
+
+      __iovec_array _M_iov;
+
+      template<typename _BufferSequence>
+	explicit
+	__msg_hdr(const _BufferSequence& __buffers)
+	: msghdr()
+	{
+	  auto __buf = net::buffer_sequence_begin(__buffers);
+	  const auto __bufend = net::buffer_sequence_end(__buffers);
+	  size_t __len = 0;
+	  while (__buf != __bufend && __len != _M_iov.size())
+	    {
+	      _M_iov[__len].iov_base = (void*)__buf->data();
+	      _M_iov[__len].iov_len = __buf->size();
+	      ++__buf;
+	      ++__len;
+	    }
+	  this->msg_iovlen = __len;
+	  this->msg_iov = _M_iov.data();
+	}
+
+      template<typename _BufferSequence, typename _Endpoint>
+	__msg_hdr(const _BufferSequence& __buffers, const _Endpoint& __ep)
+	: __msg_hdr(__buffers)
+	{
+	  this->msg_name = __ep.data();
+	  this->msg_namelen = __ep.size();
+	}
+    };
   };
 
   constexpr socket_base::message_flags
@@ -936,11 +963,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	receive(const _MutableBufferSequence& __buffers,
 		socket_base::message_flags __flags, error_code& __ec)
 	{
-	  ::iovec __iov[socket_base::_S_iov_max()];
-	  const size_t __iovlen = socket_base::_S_fill(__iov, __buffers);
-	  ::msghdr __msg{ };
-	  __msg.msg_iov = __iov;
-	  __msg.msg_iovlen = __iovlen;
+	  socket_base::__msg_hdr __msg(__buffers);
 	  ssize_t __result = ::recvmsg(__base::native_handle(), &__msg,
 				       static_cast<int>(__flags));
 	  if (__result >= 0)
@@ -1009,13 +1032,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		     socket_base::message_flags __flags,
 		     error_code& __ec)
 	{
-	  ::iovec __iov[socket_base::_S_iov_max()];
-	  const size_t __iovlen = socket_base::_S_fill(__iov, __buffers);
-	  ::msghdr __msg{ };
-	  __msg.msg_iov = __iov;
-	  __msg.msg_iovlen = __iovlen;
-	  __msg.msg_name = __sender.data();
-	  __msg.msg_namelen = __sender.capacity();
+	  socket_base::__msg_hdr __msg(__buffers, __sender);
 	  ssize_t __result = ::recvmsg(__base::native_handle(), &__msg,
 				       static_cast<int>(__flags));
 	  if (__result >= 0)
@@ -1077,11 +1094,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	send(const _ConstBufferSequence& __buffers,
 	     socket_base::message_flags __flags, error_code& __ec)
 	{
-	  ::iovec __iov[socket_base::_S_iov_max()];
-	  const size_t __iovlen = socket_base::_S_fill(__iov, __buffers);
-	  ::msghdr __msg{ };
-	  __msg.msg_iov = __iov;
-	  __msg.msg_iovlen = __iovlen;
+	  socket_base::__msg_hdr __msg(__buffers);
 	  ssize_t __result = ::sendmsg(__base::native_handle(), &__msg,
 				       static_cast<int>(__flags));
 	  if (__result >= 0)
@@ -1147,13 +1160,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	        const endpoint_type& __recipient,
 		socket_base::message_flags __flags, error_code& __ec)
 	{
-	  ::iovec __iov[socket_base::_S_iov_max()];
-	  const size_t __iovlen = socket_base::_S_fill(__iov, __buffers);
-	  ::msghdr __msg{ };
-	  __msg.msg_iov = __iov;
-	  __msg.msg_iovlen = __iovlen;
-	  __msg.msg_name = __recipient.data();
-	  __msg.msg_namelen = __recipient.size();
+	  socket_base::__msg_hdr __msg(__buffers, __recipient);
 	  ssize_t __result = ::sendmsg(__base::native_handle(), &__msg,
 				       static_cast<int>(__flags));
 	  if (__result >= 0)
@@ -1274,11 +1281,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	      return 0;
 	    }
 
-	  ::iovec __iov[socket_base::_S_iov_max()];
-	  const size_t __iovlen = socket_base::_S_fill(__iov, __buffers);
-	  ::msghdr __msg{ };
-	  __msg.msg_iov = __iov;
-	  __msg.msg_iovlen = __iovlen;
+	  socket_base::__msg_hdr __msg(__buffers);
 	  ssize_t __result = ::recvmsg(__base::native_handle(), &__msg,
 				       static_cast<int>(__flags));
 	  if (__result >= 0)
@@ -1342,11 +1345,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	      return 0;
 	    }
 
-	  ::iovec __iov[socket_base::_S_iov_max()];
-	  const size_t __iovlen = socket_base::_S_fill(__iov, __buffers);
-	  ::msghdr __msg{ };
-	  __msg.msg_iov = __iov;
-	  __msg.msg_iovlen = __iovlen;
+	  socket_base::__msg_hdr __msg(__buffers);
 	  ssize_t __result = ::sendmsg(__base::native_handle(), &__msg,
 				       static_cast<int>(__flags));
 	  if (__result >= 0)
