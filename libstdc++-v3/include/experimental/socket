@@ -868,15 +868,37 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	async_connect(const endpoint_type& __endpoint,
 		      _CompletionToken&& __token)
 	{
+	  async_completion<_CompletionToken, void(error_code)> __init{__token};
+
 	  if (!is_open())
 	    {
 	      error_code __ec;
 	      open(__endpoint.protocol(), __ec);
 	      if (__ec)
-		return;
+		{
+                  auto __ex = net::get_associated_executor(
+                      __init.completion_handler, get_executor());
+                  auto __a = get_associated_allocator(
+                      __init.completion_handler, std::allocator<void>());
+                  __ex.post(
+                      [__h=std::move(__init.completion_handler), __ec]
+                      () mutable
+                      { __h(__ec); }, __a);
+		  return __init.result.get();
+		}
 	    }
 
-	  // TODO
+	  get_executor().context().async_wait( native_handle(),
+	      socket_base::wait_read,
+	      [__h = std::move(__init.completion_handler),
+               __ep = std::move(__endpoint),
+               __fd = native_handle()]
+               (error_code __ec) mutable {
+                  if (!__ec && ::connect(__fd, __ep.data(), __ep.size()) == -1)
+                    __ec.assign(errno, generic_category());
+		  __h(__ec);
+	      });
+	  return __init.result.get();
 	}
 
       void
@@ -903,7 +925,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  async_completion<_CompletionToken, void(error_code)> __init{__token};
 	  get_executor().context().async_wait( native_handle(),
 	      static_cast<int>(__w),
-	      [__h = std::move(__init.completion_handler)] (error_code __ec) {
+	      [__h = std::move(__init.completion_handler)]
+              (error_code __ec) mutable {
 		  __h(__ec);
 	      });
 	  return __init.result.get();
@@ -1033,15 +1056,15 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		socket_base::message_flags __flags, error_code& __ec)
 	{
 	  socket_base::__msg_hdr __msg(__buffers);
-	  ssize_t __result = ::recvmsg(__base::native_handle(), &__msg,
+	  ssize_t __result = ::recvmsg(this->native_handle(), &__msg,
 				       static_cast<int>(__flags));
-	  if (__result >= 0)
-	    {
-	      __ec.clear();
-	      return __result;
-	    }
-	  __ec.assign(errno, generic_category());
-	  return 0;
+	  if (__result == -1)
+            {
+              __ec.assign(errno, generic_category());
+              return 0;
+            }
+          __ec.clear();
+          return __result;
 	}
 
       template<typename _MutableBufferSequence, typename _CompletionToken>
@@ -1059,8 +1082,32 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		      socket_base::message_flags __flags,
 		      _CompletionToken&& __token)
 	{
-	  // TODO iovec etc.
-	  // http://wg21.link/p0112r0#socket.dgram.op
+          async_completion<_CompletionToken, void(error_code, size_t)>
+            __init{__token};
+
+	  this->get_executor().context().async_wait(this->native_handle(),
+	      socket_base::wait_read,
+	      [__h = std::move(__init.completion_handler),
+               &__buffers, __flags = static_cast<int>(__flags),
+               __fd = this->native_handle()]
+              (error_code __ec) mutable {
+                  if (__ec)
+                    {
+                      __h(__ec);
+                      return;
+                    }
+                  socket_base::__msg_hdr __msg(__buffers);
+                  ssize_t __result = ::recvmsg(__fd, &__msg, __flags);
+                  if (__result == -1)
+                    {
+                      __ec.assign(errno, generic_category());
+                      __result = 0;
+                    }
+                  else
+                    __ec.clear();
+		  __h(__ec, __result);
+	      });
+	  return __init.result.get();
 	}
 
       template<typename _MutableBufferSequence>
@@ -1102,16 +1149,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		     error_code& __ec)
 	{
 	  socket_base::__msg_hdr __msg(__buffers, __sender);
-	  ssize_t __result = ::recvmsg(__base::native_handle(), &__msg,
+	  ssize_t __result = ::recvmsg(this->native_handle(), &__msg,
 				       static_cast<int>(__flags));
-	  if (__result >= 0)
-	    {
-	      __ec.clear();
-	      __sender.resize(__msg.msg_namelen);
-	      return __result;
-	    }
-	  __ec.assign(errno, generic_category());
-	  return 0;
+	  if (__result == -1)
+            {
+              __ec.assign(errno, generic_category());
+              return 0;
+            }
+          __ec.clear();
+          __sender.resize(__msg.msg_namelen);
+          return __result;
 	}
 
       template<typename _MutableBufferSequence, typename _CompletionToken>
@@ -1132,8 +1179,36 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 			   socket_base::message_flags __flags,
 			   _CompletionToken&& __token)
 	{
-	  // TODO iovec etc.
-	  // http://wg21.link/p0112r0#socket.dgram.op
+	  async_completion<_CompletionToken, void(error_code, size_t)>
+            __init{__token};
+
+	  this->get_executor().context().async_wait( this->native_handle(),
+	      socket_base::wait_read,
+	      [__h = std::move(__init.completion_handler),
+               &__buffers, __flags = static_cast<int>(__flags),
+               __sender = std::move(__sender),
+               __fd = this->native_handle()]
+              (error_code __ec) mutable {
+                  if (__ec)
+                    {
+                      __h(__ec);
+                      return;
+                    }
+                  socket_base::__msg_hdr __msg(__buffers, __sender);
+                  ssize_t __result = ::recvmsg(__fd, &__msg, __flags);
+                  if (__result == -1)
+                    {
+                      __ec.assign(errno, generic_category());
+                      __result = 0;
+                    }
+                  else
+                    {
+                      __ec.clear();
+                      __sender.resize(__msg.msg_namelen);
+                    }
+		  __h(__ec, __result);
+	      });
+	  return __init.result.get();
 	}
 
       template<typename _ConstBufferSequence>
@@ -1164,15 +1239,15 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	     socket_base::message_flags __flags, error_code& __ec)
 	{
 	  socket_base::__msg_hdr __msg(__buffers);
-	  ssize_t __result = ::sendmsg(__base::native_handle(), &__msg,
+	  ssize_t __result = ::sendmsg(this->native_handle(), &__msg,
 				       static_cast<int>(__flags));
-	  if (__result >= 0)
-	    {
-	      __ec.clear();
-	      return __result;
-	    }
-	  __ec.assign(errno, generic_category());
-	  return 0;
+	  if (__result == -1)
+            {
+              __ec.assign(errno, generic_category());
+              return 0;
+            }
+          __ec.clear();
+          return __result;
 	}
 
       template<typename _ConstBufferSequence, typename _CompletionToken>
@@ -1190,8 +1265,32 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		   socket_base::message_flags __flags,
 		   _CompletionToken&& __token)
 	{
-	  // TODO iovec etc.
-	  // http://wg21.link/p0112r0#socket.dgram.op
+	  async_completion<_CompletionToken, void(error_code, size_t)>
+            __init{__token};
+
+	  this->get_executor().context().async_wait( this->native_handle(),
+	      socket_base::wait_write,
+	      [__h = std::move(__init.completion_handler),
+               &__buffers, __flags = static_cast<int>(__flags),
+               __fd = this->native_handle()]
+              (error_code __ec) mutable {
+                  if (__ec)
+                    {
+                      __h(__ec);
+                      return;
+                    }
+                  socket_base::__msg_hdr __msg(__buffers);
+                  ssize_t __result = ::sendmsg(__fd, &__msg, __flags);
+                  if (__result == -1)
+                    {
+                      __ec.assign(errno, generic_category());
+                      __result = 0;
+                    }
+                  else
+                    __ec.clear();
+		  __h(__ec, __result);
+	      });
+	  return __init.result.get();
 	}
 
       template<typename _ConstBufferSequence>
@@ -1230,15 +1329,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		socket_base::message_flags __flags, error_code& __ec)
 	{
 	  socket_base::__msg_hdr __msg(__buffers, __recipient);
-	  ssize_t __result = ::sendmsg(__base::native_handle(), &__msg,
+	  ssize_t __result = ::sendmsg(this->native_handle(), &__msg,
 				       static_cast<int>(__flags));
-	  if (__result >= 0)
-	    {
-	      __ec.clear();
-	      return __result;
-	    }
-	  __ec.assign(errno, generic_category());
-	  return 0;
+	  if (__result == -1)
+            {
+              __ec.assign(errno, generic_category());
+              return 0;
+            }
+          __ec.clear();
+          __recipient.resize(__msg.msg_namelen);
+          return __result;
 	}
 
       template<typename _ConstBufferSequence, typename _CompletionToken>
@@ -1259,8 +1359,36 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		      socket_base::message_flags __flags,
 		      _CompletionToken&& __token)
 	{
-	  // TODO iovec etc.
-	  // http://wg21.link/p0112r0#socket.dgram.op
+	  async_completion<_CompletionToken, void(error_code, size_t)>
+            __init{__token};
+
+	  this->get_executor().context().async_wait( this->native_handle(),
+	      socket_base::wait_write,
+	      [__h = std::move(__init.completion_handler),
+               &__buffers, __flags = static_cast<int>(__flags),
+               __recipient = std::move(__recipient),
+               __fd = this->native_handle()]
+              (error_code __ec) mutable {
+                  if (__ec)
+                    {
+                      __h(__ec);
+                      return;
+                    }
+                  socket_base::__msg_hdr __msg(__buffers, __recipient);
+                  ssize_t __result = ::sendmsg(__fd, &__msg, __flags);
+                  if (__result == -1)
+                    {
+                      __ec.assign(errno, generic_category());
+                      __result = 0;
+                    }
+                  else
+                    {
+                      __ec.clear();
+                      __recipient.resize(__msg.msg_namelen);
+                    }
+		  __h(__ec, __result);
+	      });
+	  return __init.result.get();
 	}
     };
 
@@ -1351,7 +1479,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    }
 
 	  socket_base::__msg_hdr __msg(__buffers);
-	  ssize_t __result = ::recvmsg(__base::native_handle(), &__msg,
+	  ssize_t __result = ::recvmsg(this->native_handle(), &__msg,
 				       static_cast<int>(__flags));
 	  if (__result >= 0)
 	    {
@@ -1377,8 +1505,44 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		      socket_base::message_flags __flags,
 		      _CompletionToken&& __token)
 	{
-	  // TODO iovec etc.
-	  // http://wg21.link/p0112r0#socket.stream.op
+	  async_completion<_CompletionToken, void(error_code, size_t)>
+            __init{__token};
+
+          if (__buffer_empty(__buffers))
+	    {
+              auto __ex = net::get_associated_executor(
+                  __init.completion_handler, this->get_executor());
+              auto __a = get_associated_allocator(
+                  __init.completion_handler, std::allocator<void>());
+              __ex.post(
+                  [__h=std::move(__init.completion_handler)] () mutable
+                  { __h(error_code{}, 0); }, __a);
+              return __init.result.get();
+	    }
+
+          this->get_executor().context().async_wait(this->native_handle(),
+	      socket_base::wait_read,
+	      [__h = std::move(__init.completion_handler),
+               &__buffers, __flags = static_cast<int>(__flags),
+               __fd = this->native_handle()]
+              (error_code __ec) mutable {
+                  if (__ec)
+                    {
+                      __h(__ec);
+                      return;
+                    }
+                  socket_base::__msg_hdr __msg(__buffers);
+                  ssize_t __result = ::recvmsg(__fd, &__msg, __flags);
+                  if (__result == -1)
+                    {
+                      __ec.assign(errno, generic_category());
+                      __result = 0;
+                    }
+                  else
+                    __ec.clear();
+		  __h(__ec, __result);
+	      });
+	  return __init.result.get();
 	}
 
       template<class _ConstBufferSequence>
@@ -1415,7 +1579,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    }
 
 	  socket_base::__msg_hdr __msg(__buffers);
-	  ssize_t __result = ::sendmsg(__base::native_handle(), &__msg,
+	  ssize_t __result = ::sendmsg(this->native_handle(), &__msg,
 				       static_cast<int>(__flags));
 	  if (__result >= 0)
 	    {
@@ -1441,8 +1605,44 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		   socket_base::message_flags __flags,
 		   _CompletionToken&& __token)
 	{
-	  // TODO iovec etc.
-	  // http://wg21.link/p0112r0#socket.stream.op
+	  async_completion<_CompletionToken, void(error_code, size_t)>
+            __init{__token};
+
+          if (__buffer_empty(__buffers))
+	    {
+              auto __ex = net::get_associated_executor(
+                  __init.completion_handler, this->get_executor());
+              auto __a = get_associated_allocator(
+                  __init.completion_handler, std::allocator<void>());
+              __ex.post(
+                  [__h=std::move(__init.completion_handler)] () mutable
+                  { __h(error_code{}, 0); }, __a);
+              return __init.result.get();
+	    }
+
+          this->get_executor().context().async_wait(this->native_handle(),
+	      socket_base::wait_write,
+	      [__h = std::move(__init.completion_handler),
+               &__buffers, __flags = static_cast<int>(__flags),
+               __fd = this->native_handle()]
+              (error_code __ec) mutable {
+                  if (__ec)
+                    {
+                      __h(__ec);
+                      return;
+                    }
+                  socket_base::__msg_hdr __msg(__buffers);
+                  ssize_t __result = ::sendmsg(__fd, &__msg, __flags);
+                  if (__result == -1)
+                    {
+                      __ec.assign(errno, generic_category());
+                      __result = 0;
+                    }
+                  else
+                    __ec.clear();
+		  __h(__ec, __result);
+	      });
+	  return __init.result.get();
 	}
 
       template<class _MutableBufferSequence>
@@ -1753,7 +1953,37 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	__deduced_t<_CompletionToken, void(error_code, socket_type)>
 	async_accept(io_context& __ctx, _CompletionToken&& __token)
 	{
-	  // TODO
+          async_completion<_CompletionToken, void(error_code, socket_type)>
+            __init{__token};
+
+	  __ctx.get_executor().context().async_wait(native_handle(),
+	      socket_base::wait_read,
+	      [__h = std::move(__init.completion_handler),
+               __connabort = enable_connection_aborted(),
+               __fd = native_handle(),
+               __protocol = _M_protocol,
+               &__ctx
+              ]
+              (error_code __ec) mutable {
+                  if (__ec)
+                    {
+                      __h(__ec, socket_type(__ctx));
+                      return;
+                    }
+                  do
+                    {
+                      int __newfd = ::accept(__fd, nullptr, 0);
+                      if (__newfd != -1)
+                        {
+                          __ec.clear();
+                          __h(__ec, socket_type{__ctx, __protocol, __newfd});
+                          return;
+                        }
+                    } while (errno == ECONNABORTED && __connabort);
+                  __ec.assign(errno, generic_category());
+                  __h(__ec, socket_type(__ctx));
+	      });
+	  return __init.result.get();
 	}
 
       socket_type
@@ -1803,7 +2033,43 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<class _CompletionToken>
 	__deduced_t<_CompletionToken, void(error_code, socket_type)>
 	async_accept(io_context& __ctx, endpoint_type& __endpoint,
-			     _CompletionToken&& __token); // TODO
+			     _CompletionToken&& __token)
+        {
+          async_completion<_CompletionToken, void(error_code, socket_type)>
+            __init{__token};
+
+	  __ctx.get_executor().context().async_wait(native_handle(),
+	      socket_base::wait_read,
+	      [__h = std::move(__init.completion_handler),
+              __ep = std::move(__endpoint),
+               __connabort = enable_connection_aborted(),
+               __fd = native_handle(),
+               &__ctx
+              ]
+              (error_code __ec) mutable {
+                  if (__ec)
+                    {
+                      __h(__ec, socket_type(__ctx));
+                      return;
+                    }
+                  do
+                    {
+                      socklen_t __len = __ep.capacity();
+                      int __newfd = ::accept(__fd, __ep.data, &__len);
+                      if (__newfd != -1)
+                        {
+                          __ep.resize(__len);
+                          auto __protocol = __ep.protocol();
+                          __ec.clear();
+                          __h(__ec, socket_type{__ctx, __protocol, __newfd});
+                          return;
+                        }
+                    } while (errno == ECONNABORTED && __connabort);
+                  __ec.assign(errno, generic_category());
+                  __h(__ec, socket_type(__ctx));
+	      });
+	  return __init.result.get();
+        }
 
       void
       wait(wait_type __w)
@@ -1823,7 +2089,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<class _CompletionToken>
 	__deduced_t<_CompletionToken, void(error_code)>
-	async_wait(wait_type __w, _CompletionToken&& __token); // TODO
+	async_wait(wait_type __w, _CompletionToken&& __token)
+        {
+	  async_completion<_CompletionToken, void(error_code)> __init{__token};
+	  get_executor().context().async_wait( native_handle(),
+	      static_cast<int>(__w),
+	      [__h = std::move(__init.completion_handler)]
+              (error_code __ec) mutable {
+		  __h(__ec);
+	      });
+	  return __init.result.get();
+	}
 
     private:
       protocol_type _M_protocol;
