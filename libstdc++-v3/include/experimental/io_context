@@ -237,10 +237,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     friend __socket_impl;
 
     template<typename _Protocol>
+      friend class __basic_socket_impl;
+
+    template<typename _Protocol>
       friend class basic_socket;
 
     template<typename _Protocol>
-      friend class __basic_socket_impl;
+      friend class basic_datagram_socket;
+
+    template<typename _Protocol>
+      friend class basic_stream_socket;
+
+    template<typename _Protocol>
+      friend class basic_socket_acceptor;
 
     count_type
     _M_outstanding_work() const
