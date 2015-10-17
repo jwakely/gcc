@@ -705,7 +705,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	if (__eptr != __scope && !*__eptr
 	    && __val <= numeric_limits<scope_id_type>::max())
 	  {
-	    return { __b, __val };
+	    return { __b, static_cast<scope_id_type>(__val) };
 	  }
 	__ec = std::make_error_code(std::errc::invalid_argument);
       }
