@@ -599,7 +599,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       {
 	endpoint_type __endpoint;
 	socklen_t __endpoint_len = __endpoint.capacity();
-	if (::getsockname(_M_sockfd, __endpoint.data(), &__endpoint_len) == -1)
+	if (::getsockname(_M_sockfd, (sockaddr*)__endpoint.data(),
+                          &__endpoint_len) == -1)
 	  {
 	    __ec.assign(errno, generic_category());
 	    return endpoint_type{};
@@ -830,7 +831,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       {
 	endpoint_type __endpoint;
 	socklen_t __endpoint_len = __endpoint.capacity();
-	if (::getpeername(native_handle(), __endpoint.data(), &__endpoint_len)
+	if (::getpeername(this->_M_sockfd, (sockaddr*)__endpoint.data(),
+                          &__endpoint_len)
 	    == -1)
 	  {
 	    __ec.assign(errno, generic_category());
