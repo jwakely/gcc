@@ -406,6 +406,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	*this = __a.to_v4();
       else
 	*this = __a.to_v6();
+      return *this;
     }
 
     address&
@@ -413,6 +414,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     {
       ::new (std::addressof(_M_v4)) address_v4(__a);
       _M_is_v4 = true;
+      return *this;
     }
 
     address&
@@ -420,6 +422,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     {
       ::new (std::addressof(_M_v6)) address_v6(__a);
       _M_is_v4 = false;
+      return *this;
     }
 
     // members:

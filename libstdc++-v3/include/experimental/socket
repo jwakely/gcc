@@ -402,7 +402,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     __socket_impl(const __socket_impl&) = delete;
     __socket_impl& operator=(const __socket_impl&) = delete;
 
-    executor_type get_executor() noexcept { _M_ctx->get_executor(); }
+    executor_type get_executor() noexcept { return _M_ctx->get_executor(); }
 
     native_handle_type native_handle() noexcept { return _M_sockfd; }
 
