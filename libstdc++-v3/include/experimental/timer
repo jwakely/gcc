@@ -68,11 +68,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       to_wait_duration(const typename _Clock::time_point& __t)
       {
 	auto __now = _Clock::now();
-	if ((__now + _Clock::duration::max()) < __t) // TODO overflow!
+	auto __diff = __t - __now;
+	if (__diff > _Clock::duration::max())
 	  return _Clock::duration::max();
-	if ((__now + _Clock::duration::min()) > __t)
+	if (__diff < _Clock::duration::min())
 	  return _Clock::duration::min();
-	return __t - __now;
+	return __diff;
       }
     };
 
