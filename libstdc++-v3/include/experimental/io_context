@@ -660,6 +660,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  if (__res == __reactor::_S_timeout)
 	    if (__timerq == nullptr)
 	      return false;
+	    else
+	      continue;  // timed out, so restart loop and process the timer
+
+	  __timerq = nullptr;
 
 	  if (__fds.empty()) // nothing to do
 	    return false;
