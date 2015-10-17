@@ -162,8 +162,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	}
 
     private:
-      time_point _M_expiry;
       executor_type _M_ex;
+      time_point _M_expiry;
 
       struct _Key { };  // TODO move _M_expiry into here?
       unique_ptr<_Key> _M_key{new _Key};
