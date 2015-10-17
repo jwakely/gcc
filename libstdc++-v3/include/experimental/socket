@@ -415,14 +415,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	{
 	  cancel(__ec);
 	  if (!__ec)
-	    if (::close(_M_sockfd) == -1)
-	      __ec.assign(errno, generic_category());
-	    else
-	      _M_sockfd = -1;
+	    {
+	      if (::close(_M_sockfd) == -1)
+		__ec.assign(errno, generic_category());
+	      else
+		{
+		  get_executor().context()._M_remove_fd(_M_sockfd);
+		  _M_sockfd = -1;
+		}
+	    }
 	}
     }
 
-    void cancel(error_code& __ec) { } // TODO
+    void cancel(error_code& __ec) { _M_ctx->cancel(_M_sockfd, __ec); }
 
     void
     non_blocking(bool __mode, error_code&)
@@ -518,7 +523,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    _M_sockfd = ::socket(__protocol.family(), __protocol.type(),
 				 __protocol.protocol());
 	    if (is_open())
+	      {
+		get_executor().context()._M_add_fd(_M_sockfd);
 	      __ec.clear();
+	      }
 	    else
 	      __ec.assign(errno, std::generic_category());
 	  }
@@ -533,12 +541,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  __ec = socket_errc::already_open;
 	else
 	  {
+	    _M_protocol = __protocol;
 	    _M_bits.native_non_blocking = -1;
 	    _M_sockfd = __native_socket;
 	    if (is_open())
 	      {
+		get_executor().context()._M_add_fd(_M_sockfd);
 		__ec.clear();
-		_M_protocol = __protocol;
 	      }
 	    else
 	      __ec.assign(errno, std::generic_category());
@@ -756,7 +765,27 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       available() const
       { return available(__throw_on_error{"basic_socket::available"}); }
 
-      size_t available(error_code& __ec) const; // TODO
+      size_t
+      available(error_code& __ec) const
+      {
+	if (!is_open())
+	  {
+	    __ec = std::make_error_code(errc::bad_file_descriptor);
+	    return 0;
+	  }
+#ifdef FIONREAD
+	int __avail = 0;
+	if (::ioctl(this->_M_sockfd, FIONREAD, &__avail) == -1)
+	  {
+	    __ec.assign(errno, generic_category());
+	    return 0;
+	  }
+	__ec.clear();
+	return __avail;
+#else
+	return 0;
+#endif
+      }
 
       void
       bind(const endpoint_type& __endpoint)
@@ -837,7 +866,18 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename _CompletionToken>
 	__deduced_t<_CompletionToken, void(error_code)>
 	async_connect(const endpoint_type& __endpoint,
-		      _CompletionToken&& __token); // TODO
+		      _CompletionToken&& __token)
+	{
+	  if (!is_open())
+	    {
+	      error_code __ec;
+	      open(__endpoint.protocol(), __ec);
+	      if (__ec)
+		return;
+	    }
+
+	  // TODO
+	}
 
       void
       wait(wait_type __w)
@@ -858,7 +898,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _CompletionToken>
 	__deduced_t<_CompletionToken, void(error_code)>
-	async_wait(wait_type __w, _CompletionToken&& __token); // TODO
+	async_wait(wait_type __w, _CompletionToken&& __token)
+	{
+	  async_completion<_CompletionToken, void(error_code)> __init{__token};
+	  get_executor().context().async_wait( native_handle(),
+	      static_cast<int>(__w),
+	      [__h = std::move(__init.completion_handler)] (error_code __ec) {
+		  __h(__ec);
+	      });
+	  return __init.result.get();
+	}
 
     protected:
       // construct / copy / destroy:
@@ -1765,7 +1814,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       {
 	::pollfd __fds;
 	__fds.fd = native_handle();
-	__fds.events = __w | POLLIN;
+	__fds.events = __w; // __w | POLLIN;
 	if (::poll(&__fds, 1, -1) == -1)
 	  __ec.assign(errno, generic_category());
 	else

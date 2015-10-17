@@ -62,6 +62,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
    * @{
    */
 
+  class __socket_impl;
+
   /// An ExecutionContext for I/O operations.
   class io_context : public execution_context
   {
@@ -232,9 +234,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     template<typename _Clock, typename _WaitTraits>
       friend class basic_waitable_timer;
 
+    friend __socket_impl;
+
+    template<typename _Protocol>
+      friend class basic_socket;
+
+    template<typename _Protocol>
+      friend class __basic_socket_impl;
+
     count_type
     _M_outstanding_work() const
-    { return _M_work_count; }
+    { return _M_work_count + !_M_ops.empty(); }
 
     struct __timer_queue_base : execution_context::service
     {
@@ -347,7 +357,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    if (_M_queue.top()._M_key == nullptr) // cancelled
 	      {
 		__h = std::move(_M_queue.top()._M_h);
-		__ec = make_error_code(errc::operation_canceled);
+		__ec = std::make_error_code(errc::operation_canceled);
 		_M_queue.pop();
 	      }
 	    else if (_M_queue.top()._M_expiry <= _Timer::clock_type::now())
@@ -406,15 +416,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	__timer_id_type _M_next_id = 0;
       };
 
-    template<typename _Timer, typename _CompletionToken>
-      decltype(auto)
-      async_wait(const _Timer& __timer, _CompletionToken&& __token)
+    template<typename _Timer, typename _CompletionHandler>
+      void
+      async_wait(const _Timer& __timer, _CompletionHandler&& __h)
       {
 	auto& __queue = use_service<__timer_queue<_Timer>>(*this);
-	async_completion<_CompletionToken, void(error_code)> __init(__token);
-	__queue.push(__timer, std::move(__init.completion_handler));
+	__queue.push(__timer, std::move(__h));
 	_M_reactor._M_notify();
-	return __init.result.get();
       }
 
     // Cancel all wait operations initiated by __timer.
@@ -447,26 +455,85 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	return 0;
       }
 
+    template<typename _Op>
+      void
+      async_wait(int __fd, int __w, _Op&& __op)
+      {
+	lock_guard<mutex> __lock(_M_mtx);
+	// TODO need push_back, use std::list not std::forward_list
+	auto __tail = _M_ops.before_begin(), __it = _M_ops.begin();
+	while (__it != _M_ops.end())
+	  {
+	    ++__it;
+	    ++__tail;
+	  }
+	using __type = __async_operation_impl<_Op>;
+	_M_ops.emplace_after(__tail,
+			     make_unique<__type>(std::move(__op), __fd, __w));
+	_M_reactor._M_fd_interest(__fd, __w);
+      }
+
+    void _M_add_fd(int __fd) { _M_reactor._M_add_fd(__fd); }
+    void _M_remove_fd(int __fd) { _M_reactor._M_remove_fd(__fd); }
+
+    void cancel(int __fd, error_code&)
+    {
+      lock_guard<mutex> __lock(_M_mtx);
+      const auto __end = _M_ops.end();
+      auto __it = _M_ops.begin();
+      auto __prev = _M_ops.before_begin();
+      while (__it != __end && (*__it)->_M_is_cancelled())
+	{
+	  ++__it;
+	  ++__prev;
+	}
+      auto __cancelled = __prev;
+      while (__it != __end)
+	{
+	  if ((*__it)->_M_fd == __fd)
+	    {
+	      (*__it)->cancel();
+	      ++__it;
+	      _M_ops.splice_after(__cancelled, _M_ops, __prev);
+	      ++__cancelled;
+	    }
+	  else
+	    {
+	      ++__it;
+	      ++__prev;
+	    }
+	}
+      _M_reactor._M_not_interested(__fd);
+    }
+
     struct __async_operation
     {
+      __async_operation(int __fd, int __ev) : _M_fd(__fd), _M_ev(__ev) { }
+
+      virtual ~__async_operation() = default;
+
       int _M_fd;
       short _M_ev;
-      void cancel() { _M_ev = -1; }
-      virtual void run() = 0;
+
+      void cancel() { _M_fd = -1; }
+      bool _M_is_cancelled() const { return _M_fd == -1; }
+      virtual void run(io_context&) = 0;
     };
 
-    template<typename _CompletionHandler>
+    template<typename _Op>
       struct __async_operation_impl : __async_operation
       {
-	function<void(_CompletionHandler)> _M_op;
-	_CompletionHandler _M_h;
+	__async_operation_impl(_Op&& __op, int __fd, int __ev)
+	: __async_operation{__fd, __ev}, _M_op(std::move(__op)) { }
 
-	void run()
+	_Op _M_op;
+
+	void run(io_context& __ctx)
 	{
-	  if (_M_ev = -1)
-	    _M_h(std::make_error_code(std::errc::operation_canceled), 0);
+	  if (_M_is_cancelled())
+	    _M_op(std::make_error_code(errc::operation_canceled));
 	  else
-	    _M_op(std::move(_M_h));
+	    _M_op(error_code{});
 	}
       };
 
@@ -487,7 +554,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       {
 	lock_guard<mutex> __lock(_M_ctx._M_mtx);
 	_M_ctx._M_call_stack.pop_back();
-	if (_M_ctx._M_work_count == 0)
+	if (_M_ctx._M_outstanding_work() == 0)
 	  _M_ctx.stop();
       }
 
@@ -501,7 +568,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     {
       const bool __block = __timeout != chrono::milliseconds::zero();
 
-      __reactor::result_type __fds;
+      __reactor::__fdvec __fds;
 
       __monitor __mon{*this};
 
@@ -520,7 +587,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 	  if (__async_op)
 	    {
-	      __async_op->run();
+	      __async_op->run(*this);
+	      // TODO need to unregister __async_op
 	      return true;
 	    }
 
@@ -553,6 +621,15 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    if (__timerq && __ms == __ms.zero())
 	      continue;  // restart loop to run a timer immediately
 
+	    if (!_M_ops.empty() && _M_ops.front()->_M_is_cancelled())
+	      {
+		_M_ops.front().swap(__async_op);
+		_M_ops.pop_front();
+		continue;
+	      }
+
+	    // TODO run any posted items
+
 	    if (__block)
 	      {
 		if (__timerq == nullptr)
@@ -566,7 +643,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 	  }
 
-	  auto __res = _M_reactor.wait(__fds, __timeout);
+	  auto __res = _M_reactor.wait(__fds, __ms);
 
 	  if (__res == __reactor::_S_retry)
 	    continue;
@@ -583,15 +660,15 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	      __prev = _M_ops.before_begin(); __it != __end; ++__it, ++__prev)
 	    {
 	      auto& __op = **__it;
-	      auto __fd = std::find_if(__fds.begin(), __fds.end(),
-		  [&](const ::pollfd& __p) {
-		      return __p.fd == __op._M_fd && __p.revents & __op._M_ev;
-		  });
-	      if (__fd != __fds.end())
+	      auto __pos = std::lower_bound(__fds.begin(), __fds.end(),
+		  __op._M_fd,
+		  [](const auto& __p, int __fd) { return __p.fd < __fd; });
+	      if (__pos != __fds.end() && __pos->fd == __op._M_fd
+		  && __pos->revents & __op._M_ev)
 		{
 		  __it->swap(__async_op);
 		  _M_ops.erase_after(__prev);
-		  break;
+		  break;  // restart loop and run op
 		}
 	    }
 	}
@@ -599,9 +676,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     struct __reactor
     {
-      void _M_add_fd(int);
-      void _M_remove_fd(int);
-
       __reactor() : _M_fds(1)
       {
 	int __pipe[2];
@@ -615,16 +689,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    ::close(__pipe[1]);
 	    __throw_system_error(__e);
 	  }
-	_M_notify_rd = __pipe[0];
-	_M_notify_wr = __pipe[1];
-
-	// Add to the pollfd array
-	_M_fds[0].fd = _M_notify_rd;
+	_M_fds.back().events	= POLLIN;
+	_M_fds.back().fd	= __pipe[0];
+	_M_notify_wr		= __pipe[1];
       }
 
       ~__reactor()
       {
-	::close(_M_notify_rd);
+	::close(_M_fds.back().fd);
 	::close(_M_notify_wr);
       }
 
@@ -644,16 +716,64 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	char __buf[64];
 	ssize_t __n;
 	do {
-	  __n = ::read(_M_notify_rd, __buf, sizeof(__buf));
-	} while (__n == sizeof(__buf) || (__n == -1 && errno == EINTR));
+	  __n = ::read(_M_fds.back().fd, __buf, sizeof(__buf));
+	} while (__n != -1 || errno == EINTR);
       }
 
-      using result_type = vector<::pollfd>;
+      void
+      _M_add_fd(int __fd)
+      {
+	auto __pos = _M_lower_bound(__fd);
+	if (__pos->fd == __fd)
+	  __throw_system_error((int)errc::invalid_argument);
+	_M_fds.insert(__pos, __fdvec::value_type{})->fd = __fd;
+	_M_notify();
+      }
+
+      void
+      _M_remove_fd(int __fd)
+      {
+	auto __pos = _M_lower_bound(__fd);
+	if (__pos->fd == __fd)
+	  _M_fds.erase(__pos);
+	// else bug!
+	_M_notify();
+      }
+
+      void
+      _M_fd_interest(int __fd, int __w)
+      {
+	auto __pos = _M_lower_bound(__fd);
+	if (__pos->fd == __fd)
+	  __pos->events |= __w;
+	// else bug!
+	_M_notify();
+      }
+
+      void
+      _M_not_interested(int __fd)
+      {
+	auto __pos = _M_lower_bound(__fd);
+	if (__pos->fd == __fd)
+	  __pos->events = 0;
+	_M_notify();
+      }
+
+      using __fdvec = vector<::pollfd>;
+
+      // Find first element p such that !(p.fd < __fd)
+      // N.B. always returns a dereferencable iterator.
+      __fdvec::iterator
+      _M_lower_bound(int __fd)
+      {
+	return std::lower_bound(_M_fds.begin(), _M_fds.end() - 1,
+	    __fd, [](const auto& __p, int __fd) { return __p.fd < __fd; });
+      }
 
       enum __status { _S_retry, _S_timeout, _S_ok, _S_error };
 
       __status
-      wait(result_type& __fds, chrono::milliseconds __timeout)
+      wait(__fdvec& __fds, chrono::milliseconds __timeout)
       {
 	if (_M_fds.size() < 2)
 	  {
@@ -678,23 +798,22 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    __fds.clear();
 	    return _S_timeout;
 	  }
-	else if (__fds[0].revents != 0) // something changed, restart
+	else if (__fds.back().revents != 0) // something changed, restart
 	  {
 	    __fds.clear();
 	    _M_on_notify();
 	    return _S_retry;
 	  }
 
-	auto __part = std::partition(__fds.begin(), __fds.end(),
-	      [](const ::pollfd __p) { return __p.revents != 0; });
+	auto __part = std::stable_partition(__fds.begin(), __fds.end() - 1,
+	      [](const __fdvec::value_type& __p) { return __p.revents != 0; });
 	__fds.erase(__part, __fds.end());
 
 	return _S_ok;
       }
 
-      vector<struct pollfd> _M_fds;
-      int _M_notify_rd;
-      int _M_notify_wr;
+      __fdvec _M_fds;	// _M_fds.back() is the read end of the self-pipe
+      int _M_notify_wr;	// write end of the self-pipe
     };
 
     __reactor _M_reactor;

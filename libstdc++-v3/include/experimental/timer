@@ -154,7 +154,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename _CompletionToken>
 	__deduced_t<_CompletionToken, void(error_code)>
 	async_wait(_CompletionToken&& __token)
-	{ return _M_ex.context().async_wait(*this, std::move(__token)); }
+	{
+	  async_completion<_CompletionToken, void(error_code)> __init(__token);
+	  _M_ex.context().async_wait(*this,
+				     std::move(__init.completion_handler));
+	  return __init.result.get();
+	}
 
     private:
       time_point _M_expiry;
