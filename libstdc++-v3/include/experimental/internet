@@ -857,7 +857,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   { return make_address(__str, __throw_on_error{"make_address"}); }
 
   inline address
-  make_address(const string& __str, error_code& __ec) noexcept;
+  make_address(const string& __str, error_code& __ec) noexcept; // TODO
 
   inline address
   make_address(const string& __str)
@@ -1213,7 +1213,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     constexpr address_v6 address() const noexcept { return _M_addr; }
     constexpr int prefix_length() const noexcept { return _M_prefix_len; }
 
-    constexpr address_v6 network() const noexcept;
+    constexpr address_v6 network() const noexcept; // TODO
 
     address_v6_range
     hosts() const noexcept

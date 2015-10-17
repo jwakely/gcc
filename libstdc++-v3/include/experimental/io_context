@@ -110,7 +110,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	post(_Func&& __f, const _ProtoAllocator& __a)
 	{
 	  lock_guard<mutex> __lock(_M_ctx->_M_mtx);
-	  // TODO
+	  // TODO (re-use functionality in system_context)
 	  _M_ctx->_M_reactor._M_notify();
 	}
 
@@ -275,6 +275,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  context().get_executor().on_work_started();
 	  lock_guard<mutex> __lock(_M_qmtx);
 	  _M_queue.emplace(__t, _M_next_id++, std::move(__h));
+	  // no need to notify reactor unless this timer went to the front?
 	}
 
 	// Cancel all outstanding waits for __t
