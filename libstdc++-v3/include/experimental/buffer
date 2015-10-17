@@ -63,7 +63,26 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     not_found = 2
   };
 
-  const error_category& stream_category() noexcept; // TODO
+  const error_category& stream_category() noexcept // TODO not inline
+  {
+    struct __cat : error_category
+    {
+      const char* name() const noexcept { return "stream"; }
+
+      std::string message(int __e) const
+      {
+	if (__e == (int)stream_errc::eof)
+	  return "EOF";
+	else if (__e == (int)stream_errc::not_found)
+	  return "not found";
+	return "stream error";
+      }
+
+      virtual void __message(int) { } // TODO dual ABI XXX
+    };
+    static __cat __c;
+    return __c;
+  }
 
   inline error_code
   make_error_code(stream_errc __e) noexcept
