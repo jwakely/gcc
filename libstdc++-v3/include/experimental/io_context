@@ -344,7 +344,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  {
 	    lock_guard<mutex> __lock(_M_qmtx);
 	    if (_M_queue.empty())
-	      return chrono::milliseconds::max();
+	      return chrono::milliseconds::max();  // no pending timers
+	    if (_M_queue.top()._M_key == nullptr)
+	      return chrono::milliseconds::zero(); // cancelled, run now
 	    __exp = _M_queue.top()._M_expiry;
 	  }
 	  auto __dur = _Timer::traits_type::to_wait_duration(__exp);
@@ -788,12 +790,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       __status
       wait(__fdvec& __fds, chrono::milliseconds __timeout)
       {
-	if (_M_fds.size() < 2)
-	  {
-	    __fds.clear();
-	    return _S_ok;
-	  }
-
 	// XXX not thread-safe!
 	__fds = _M_fds;  // take snapshot to pass to poll()
 
