@@ -52,8 +52,6 @@ test01()
   VERIFY( ec == std::errc::operation_canceled );
 }
 
-#include <iostream>
-
 void
 test02()
 {
@@ -75,9 +73,6 @@ test02()
   timer.async_wait([&ec1](error_code e) { ec1 = e; });
   timer.async_wait([&ec2](error_code e) { ec2 = e; });
   auto n = timer.expires_at(t1);
-  std::cout << n << '\n';
-  std::cout << t1.time_since_epoch().count() << '\n';
-  std::cout << timer.expiry().time_since_epoch().count() << std::endl;
   VERIFY( n == 2 );
   VERIFY( timer.expiry() == t1 );
 
