@@ -75,7 +75,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  return "EOF";
 	else if (__e == (int)stream_errc::not_found)
 	  return "not found";
-	return "stream error";
+	return "stream";
       }
 
       virtual void __message(int) { } // TODO dual ABI XXX
