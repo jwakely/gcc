@@ -2016,7 +2016,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	do
 	  {
 	    socklen_t __len = __endpoint.capacity();
-	    int __h = ::accept(native_handle(), __endpoint.data(), &__len);
+	    int __h = ::accept(native_handle(), (sockaddr*)__endpoint.data(),
+			       &__len);
 	    if (__h != -1)
 	      {
 		__endpoint.resize(__len);
