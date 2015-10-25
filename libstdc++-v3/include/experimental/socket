@@ -36,8 +36,12 @@
 #else
 
 #include <experimental/netfwd>
+#include <experimental/buffer>
+#include <experimental/io_context>
+#include <experimental/bits/net.h>
 #include <streambuf>
 #include <istream>
+#include <bits/unique_ptr.h>
 #if _GLIBCXX_HAVE_UNISTD_H
 # include <unistd.h>
 # include <sys/socket.h>
