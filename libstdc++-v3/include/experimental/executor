@@ -333,10 +333,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     __deduced_t<_CompletionToken, void()>
     post(_CompletionToken&& __token);
   template<typename _Executor, typename _CompletionToken>
-    __deduced_t<_CompletionToken, void()>
+    enable_if_t<is_executor<_Executor>::value,
+		__deduced_t<_CompletionToken, void()>>
     post(const _Executor& __ex, _CompletionToken&& __token);
   template<typename _ExecutionContext, typename _CompletionToken>
-    __deduced_t<_CompletionToken, void()>
+    enable_if_t<__is_exec_context<_ExecutionContext>::value,
+		__deduced_t<_CompletionToken, void()>>
     post(_ExecutionContext& __ctx, _CompletionToken&& __token);
 
   // defer:
