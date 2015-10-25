@@ -858,8 +858,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    if (__ec)
 	      return;
 	  }
-	if (::connect(native_handle(), __endpoint.data(), __endpoint.size())
-	    == -1)
+	if (::connect(native_handle(), (const sockaddr*)__endpoint.data(),
+		      __endpoint.size()) == -1)
 	  __ec.assign(errno, generic_category());
 	else
 	  __ec.clear();
