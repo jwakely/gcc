@@ -566,7 +566,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	lock_guard<mutex> __lock(_M_ctx._M_mtx);
 	_M_ctx._M_call_stack.pop_back();
 	if (_M_ctx._M_outstanding_work() == 0)
-	  _M_ctx.stop();
+	  {
+	    _M_ctx._M_stopped = true;
+	    _M_ctx._M_reactor._M_notify();
+	  }
       }
 
       __monitor(__monitor&&) = delete;
