@@ -670,22 +670,23 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   template<typename _SyncReadStream, typename _DynamicBuffer,
 	   typename _CompletionCondition>
-    enable_if_t<is_dynamic_buffer<_DynamicBuffer>::value, size_t>
+    enable_if_t<is_dynamic_buffer<decay_t<_DynamicBuffer>>::value, size_t>
     read(_SyncReadStream& __stream, _DynamicBuffer&& __b,
 	 _CompletionCondition __completion_condition, error_code& __ec)
     {
+      const size_t __limit = 64;
       __ec.clear();
-      size_t __cap = std::max(__b.capacity() - __b.size(), 64);
+      size_t __cap = std::max(__b.capacity() - __b.size(), __limit);
       size_t __total = 0;
       size_t __n;
       while ((__n = __completion_condition(__ec, __total))
 	  && __b.size() != __b.max_size())
 	{
 	  __n =  std::min(__n, __b.max_size() - __b.size());
-	  size_t __cap = std::max(__b.capacity() - __b.size(), 64);
+	  size_t __cap = std::max(__b.capacity() - __b.size(), __limit);
 	  mutable_buffer __to = __b.prepare(std::min(__cap, __n));
 	  __n = __stream.read_some(__to, __ec);
-	  __to += __n;
+	  __to = __to + __n;
 	  __total += __n;
 	  __b.commit(__n);
 	}
