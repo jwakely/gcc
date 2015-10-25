@@ -900,7 +900,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
                __ep = std::move(__endpoint),
                __fd = native_handle()]
                (error_code __ec) mutable {
-                  if (!__ec && ::connect(__fd, __ep.data(), __ep.size()) == -1)
+                  if (!__ec && ::connect(__fd, (const sockaddr*)__ep.data(),
+					 __ep.size()) == -1)
                     __ec.assign(errno, generic_category());
 		  __h(__ec);
 	      });
