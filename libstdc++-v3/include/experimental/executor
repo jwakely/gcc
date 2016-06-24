@@ -1212,9 +1212,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   operator==(const executor& __e, nullptr_t) noexcept
   { return !__e; }
 
-  void swap(executor&, executor&) noexcept;
   /// Swap two executor objects.
-  void swap(executor& __a, executor& __b) noexcept { __a.swap(__b); }
+  inline void swap(executor& __a, executor& __b) noexcept { __a.swap(__b); }
 
 
   template<typename _CompletionHandler>
