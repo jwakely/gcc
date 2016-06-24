@@ -1205,6 +1205,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     shared_ptr<_Tgt> _M_target;
   };
 
+  template<> struct is_executor<executor> : true_type { };
+
+  /// executor comparisons
   inline bool
   operator==(const executor& __e, nullptr_t) noexcept
   { return !__e; }
