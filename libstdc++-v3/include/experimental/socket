@@ -2158,7 +2158,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename... _Args>
 	basic_socket_streambuf* connect(_Args&&... ); // TODO
 
-      basic_socket_streambuf<protocol_type>* close(); // TODO
+      basic_socket_streambuf* close(); // TODO
 
       basic_socket<protocol_type>& socket() { return _M_socket; }
       error_code error() const { return _M_ec; }
