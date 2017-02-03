@@ -2130,7 +2130,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       typedef _Clock clock_type;
       typedef typename clock_type::time_point time_point;
       typedef typename clock_type::duration duration;
-      typedef _WaitTraits traits_type;
+      typedef _WaitTraits wait_traits_type;
 
       // construct / copy / destroy:
 
@@ -2191,7 +2191,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       basic_stream_socket<protocol_type> _M_socket;
       error_code _M_ec;
-      time_point _M_expiry{ clock_type::max() };
+      time_point _M_expiry{ time_point::max() };
     };
 
   template<typename _Protocol, class _Clock, typename _WaitTraits>
@@ -2208,7 +2208,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       typedef _Clock clock_type;
       typedef typename clock_type::time_point time_point;
       typedef typename clock_type::duration duration;
-      typedef _WaitTraits traits_type;
+      typedef _WaitTraits wait_traits_type;
 
       // construct / copy / destroy:
 
@@ -2268,7 +2268,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  this->setstate(failbit);
       }
 
-      basic_socket_streambuf<protocol_type, clock_type, traits_type>*
+      basic_socket_streambuf<protocol_type, clock_type, wait_traits_type>*
       rdbuf() const
       { return const_cast<__streambuf_type*>(std::addressof(_M_sb)); }
 
