@@ -211,6 +211,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     : __is_buffer_sequence<_Tp, const_buffer>::type
     { };
 
+  template<typename _Tp>
+    constexpr bool is_mutable_buffer_sequence_v
+      = is_mutable_buffer_sequence<_Tp>::value;
+
+  template<typename _Tp>
+    constexpr bool is_const_buffer_sequence_v
+      = is_const_buffer_sequence<_Tp>::value;
+
   template<typename _Tp, typename = void>
     struct __is_dynamic_buffer_impl : false_type
     { };
@@ -240,6 +248,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _Tp>
     struct is_dynamic_buffer : __is_dynamic_buffer_impl<_Tp>::type
     { };
+
+  template<typename _Tp>
+    constexpr bool is_dynamic_buffer_v = is_dynamic_buffer<_Tp>::value;
 
   // @}
 

@@ -632,6 +632,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     struct is_executor : __is_executor_impl<_Tp>
     { };
 
+  template<typename _Tp>
+    constexpr bool is_executor_v = is_executor<_Tp>::value;
+
   template<typename _Tp, typename _Executor, typename = __void_t<>>
     struct __uses_executor_impl : false_type
     { };
@@ -645,6 +648,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _Tp, typename _Executor>
     struct uses_executor : __uses_executor_impl<_Tp, _Executor>::type
     { };
+
+  template<typename _Tp, typename _Executor>
+    constexpr bool uses_executor_v = uses_executor<_Tp, _Executor>::value;
 
   template<typename _Tp, typename _Executor>
     class executor_binder
