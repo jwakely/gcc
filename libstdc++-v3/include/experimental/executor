@@ -548,9 +548,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     use_service(execution_context& __ctx)
     {
       using _Key = typename _Service::key_type;
-      static_assert(is_base_of<execution_context::service, _Key>::value
+      static_assert(is_base_of<execution_context::service, _Key>::value,
 	  "a service type must derive from execution_context::service");
-      static_assert(is_base_of<_Key, _Service>::value
+      static_assert(is_base_of<_Key, _Service>::value,
 	  "a service type must match or derive from its key_type");
       auto __key = execution_context::_S_key<_Key>();
       std::lock_guard<std::mutex> __lock(__ctx._M_mutex);
@@ -572,9 +572,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     make_service(execution_context& __ctx, _Args&&... __args)
     {
       using _Key = typename _Service::key_type;
-      static_assert(is_base_of<execution_context::service, _Key>::value
+      static_assert(is_base_of<execution_context::service, _Key>::value,
 	  "a service type must derive from execution_context::service");
-      static_assert(is_base_of<_Key, _Service>::value
+      static_assert(is_base_of<_Key, _Service>::value,
 	  "a service type must match or derive from its key_type");
       auto __key = execution_context::_S_key<_Key>();
       std::lock_guard<std::mutex> __lock(__ctx._M_mutex);
@@ -595,9 +595,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     has_service(const execution_context& __ctx) noexcept
     {
       using _Key = typename _Service::key_type;
-      static_assert(is_base_of<execution_context::service, _Key>::value
+      static_assert(is_base_of<execution_context::service, _Key>::value,
 	  "a service type must derive from execution_context::service");
-      static_assert(is_base_of<_Key, _Service>::value
+      static_assert(is_base_of<_Key, _Service>::value,
 	  "a service type must match or derive from its key_type");
       std::lock_guard<std::mutex> __lock(__ctx._M_mutex);
       return __ctx._M_keys.count(execution_context::_S_key<_Key>());
