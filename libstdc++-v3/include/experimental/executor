@@ -1494,8 +1494,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       _Executor _M_inner_ex;
     };
 
-#if defined(_GLIBCXX_HAS_GTHREADS) && defined(_GLIBCXX_USE_C99_STDINT_TR1) \
-  && (ATOMIC_INT_LOCK_FREE > 1)
+#if defined(_GLIBCXX_HAS_GTHREADS) && defined(_GLIBCXX_USE_C99_STDINT_TR1)
 
   // Completion token for asynchronous operations initiated with use_future.
   template<typename _Func, typename _Alloc>
