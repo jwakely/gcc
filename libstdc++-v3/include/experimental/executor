@@ -428,7 +428,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       // service observers:
 
-      execution_context& context() noexcept { return _M_context; }
+      execution_context& context() const noexcept { return _M_context; }
 
     private:
       // service operations:
@@ -939,26 +939,27 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     system_executor() { }
 
-    system_context& context() noexcept { return system_context::_S_get(); }
+    system_context&
+    context() const noexcept { return system_context::_S_get(); }
 
-    void on_work_started() noexcept { }
-    void on_work_finished() noexcept { }
+    void on_work_started() const noexcept { }
+    void on_work_finished() const noexcept { }
 
     template<typename _Func, typename _ProtoAlloc>
       void
-      dispatch(_Func&& __f, const _ProtoAlloc& __a)
+      dispatch(_Func&& __f, const _ProtoAlloc& __a) const
       { decay_t<_Func>{std::forward<_Func>(__f)}(); }
 
     template<typename _Func, typename _ProtoAlloc>
       void
-      post(_Func&& __f, const _ProtoAlloc&) // XXX allocator not used
+      post(_Func&& __f, const _ProtoAlloc&) const // XXX allocator not used
       {
 	system_context::_S_get()._M_post(std::forward<_Func>(__f));
       }
 
     template<typename _Func, typename _ProtoAlloc>
       void
-      defer(_Func&& __f, const _ProtoAlloc& __a)
+      defer(_Func&& __f, const _ProtoAlloc& __a) const
       { post(std::forward<_Func>(__f), __a); }
   };
 
@@ -1035,21 +1036,21 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     // executor operations:
 
     execution_context&
-    context() noexcept
+    context() const noexcept
     {
       __glibcxx_assert( _M_target );
       return _M_target->context();
     }
 
     void
-    on_work_started() noexcept
+    on_work_started() const noexcept
     {
       __glibcxx_assert( _M_target );
       return _M_target->on_work_started();
     }
 
     void
-    on_work_finished() noexcept
+    on_work_finished() const noexcept
     {
       __glibcxx_assert( _M_target );
       return _M_target->on_work_finished();
@@ -1057,7 +1058,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     template<typename _Func, typename _Alloc>
       void
-      dispatch(_Func&& __f, const _Alloc& __a)
+      dispatch(_Func&& __f, const _Alloc& __a) const
       {
 	if (!_M_target)
 	  __throw_bad_executor();
@@ -1067,7 +1068,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     template<typename _Func, typename _Alloc>
       void
-      post(_Func&& __f, const _Alloc& __a)
+      post(_Func&& __f, const _Alloc& __a) const
       {
 	if (!_M_target)
 	  __throw_bad_executor();
@@ -1077,7 +1078,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     template<typename _Func, typename _Alloc>
       void
-      defer(_Func&& __f, const _Alloc& __a)
+      defer(_Func&& __f, const _Alloc& __a) const
       {
 	if (!_M_target)
 	  __throw_bad_executor();
@@ -1121,12 +1122,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   private:
     struct _Tgt
     {
-      virtual void on_work_started() noexcept = 0;
-      virtual void on_work_finished() noexcept = 0;
-      virtual execution_context& context() noexcept = 0;
-      virtual void dispatch(std::function<void()>) = 0;
-      virtual void post(std::function<void()>) = 0;
-      virtual void defer(std::function<void()>) = 0;
+      virtual void on_work_started() const noexcept = 0;
+      virtual void on_work_finished() const noexcept = 0;
+      virtual execution_context& context() const noexcept = 0;
+      virtual void dispatch(std::function<void()>) const = 0;
+      virtual void post(std::function<void()>) const = 0;
+      virtual void defer(std::function<void()>) const = 0;
 #if __cpp_rtti
       virtual const type_info& target_type() const = 0;
       virtual void* target(const std::type_info&) const = 0;
@@ -1142,17 +1143,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	_TgtImpl(_Ex&& __ex, const _Alloc& __a)
 	: _M_impl(std::move(__ex), __a) { }
 
-	void on_work_started() noexcept { _M_ex().on_work_started(); }
-	void on_work_finished() noexcept { _M_ex().on_work_finished(); }
-	execution_context& context() noexcept { return _M_ex().context(); }
+	void on_work_started() const noexcept { _M_ex().on_work_started(); }
+	void on_work_finished() const noexcept { _M_ex().on_work_finished(); }
+	execution_context& context() const noexcept { return _M_ex().context(); }
 	void
-	dispatch(std::function<void()> __f)
+	dispatch(std::function<void()> __f) const
 	{ _M_ex().dispatch(std::move(__f), _M_alloc()); }
 	void
-	post(std::function<void()> __f)
+	post(std::function<void()> __f) const
 	{ _M_ex().post(std::move(__f), _M_alloc()); }
 	void
-	defer(std::function<void()> __f)
+	defer(std::function<void()> __f) const
 	{ _M_ex().defer(std::move(__f), _M_alloc()); }
 
 #if __cpp_rtti
@@ -1454,15 +1455,15 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return std::this_thread::get_id() == _M_state->_M_running_on; }
 
       execution_context&
-      context() noexcept
+      context() const noexcept
       { return _M_inner_ex.context(); }
 
-      void on_work_started() noexcept { _M_inner_ex.on_work_started(); }
-      void on_work_finished() noexcept { _M_inner_ex.on_work_finished(); }
+      void on_work_started() const noexcept { _M_inner_ex.on_work_started(); }
+      void on_work_finished() const noexcept { _M_inner_ex.on_work_finished(); }
 
       template<typename _Func, typename _Alloc>
 	void
-	dispatch(_Func&& __f, const _Alloc& __a)
+	dispatch(_Func&& __f, const _Alloc& __a) const
 	{
 	  if (running_in_this_thread())
 	    decay_t<_Func>{std::forward<_Func>(__f)}();
@@ -1472,11 +1473,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _Func, typename _Alloc>
 	void
-	post(_Func&& __f, const _Alloc& __a); // TODO
+	post(_Func&& __f, const _Alloc& __a) const; // TODO
 
       template<typename _Func, typename _Alloc>
 	void
-	defer(_Func&& __f, const _Alloc& __a)
+	defer(_Func&& __f, const _Alloc& __a) const
 	{ post(std::forward<_Func>(__f), __a); }
 
     private:
