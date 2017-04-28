@@ -1,3 +1,9 @@
+2017-04-28  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/80538
+	* src/c++11/thread.cc (this_thread::__sleep_for)
+	[_GLIBCXX_HAVE_USLEEP]: Only call sleep for non-zero values.
+
 2017-04-29  François Dumont  <fdumont@gcc.gnu.org>
 
 	* testsuite/libstdc++-prettyprinters/48362.cc: Replace a regexp-test

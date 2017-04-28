@@ -225,7 +225,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { }
 #elif defined(_GLIBCXX_HAVE_SLEEP)
 # ifdef _GLIBCXX_HAVE_USLEEP
-    ::sleep(__s.count());
+    if (__s != 0)
+      ::sleep(__s.count());
     if (__ns.count() > 0)
       {
         long __us = __ns.count() / 1000;
