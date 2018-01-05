@@ -872,7 +872,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     DEDUCED async_read_until(_AsyncReadStream& __s,
                           _DynamicBuffer&& __b, string_view __delim,
                           _CompletionToken&& __token);
- 
+
   // @}
 
 #endif
