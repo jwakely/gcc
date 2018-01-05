@@ -1,6 +1,6 @@
 // <forward_list.h> -*- C++ -*-
 
-// Copyright (C) 2008-2017 Free Software Foundation, Inc.
+// Copyright (C) 2008-2018 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -43,6 +43,7 @@
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
+_GLIBCXX_BEGIN_NAMESPACE_VERSION
 _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 
   /**
@@ -335,7 +336,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       _M_get_node()
       {
 	auto __ptr = _Node_alloc_traits::allocate(_M_get_Node_allocator(), 1);
-	return std::__addressof(*__ptr);
+	return std::__to_address(__ptr);
       }
 
       template<typename... _Args>
@@ -405,9 +406,16 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
    *  specialized algorithms %unique to linked lists, such as
    *  splicing, sorting, and in-place reversal.
    */
-  template<typename _Tp, typename _Alloc = allocator<_Tp> >
+  template<typename _Tp, typename _Alloc = allocator<_Tp>>
     class forward_list : private _Fwd_list_base<_Tp, _Alloc>
     {
+      static_assert(is_same<typename remove_cv<_Tp>::type, _Tp>::value,
+	  "std::forward_list must have a non-const, non-volatile value_type");
+#ifdef __STRICT_ANSI__
+      static_assert(is_same<typename _Alloc::value_type, _Tp>::value,
+	  "std::forward_list must have the same value_type as its allocator");
+#endif
+
     private:
       typedef _Fwd_list_base<_Tp, _Alloc>                  _Base;
       typedef _Fwd_list_node<_Tp>                          _Node;
@@ -1359,6 +1367,16 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       }
     };
 
+#if __cpp_deduction_guides >= 201606
+  template<typename _InputIterator, typename _ValT
+	     = typename iterator_traits<_InputIterator>::value_type,
+	   typename _Allocator = allocator<_ValT>,
+	   typename = _RequireInputIter<_InputIterator>,
+	   typename = _RequireAllocator<_Allocator>>
+    forward_list(_InputIterator, _InputIterator, _Allocator = _Allocator())
+      -> forward_list<_ValT, _Allocator>;
+#endif
+
   /**
    *  @brief  Forward list equality comparison.
    *  @param  __lx  A %forward_list
@@ -1430,6 +1448,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
     { __lx.swap(__ly); }
 
 _GLIBCXX_END_NAMESPACE_CONTAINER
+_GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 
 #endif // _FORWARD_LIST_H

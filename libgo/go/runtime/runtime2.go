@@ -254,7 +254,7 @@ func setMNoWB(mp **m, new *m) {
 type sudog struct {
 	// The following fields are protected by the hchan.lock of the
 	// channel this sudog is blocking on. shrinkstack depends on
-	// this.
+	// this for sudogs involved in channel ops.
 
 	g          *g
 	selectdone *uint32 // CAS to 1 to win select race (may point to stack)
@@ -263,23 +263,17 @@ type sudog struct {
 	elem       unsafe.Pointer // data element (may point to stack)
 
 	// The following fields are never accessed concurrently.
-	// waitlink is only accessed by g.
+	// For channels, waitlink is only accessed by g.
+	// For semaphores, all fields (including the ones above)
+	// are only accessed when holding a semaRoot lock.
 
 	acquiretime int64
 	releasetime int64
 	ticket      uint32
-	waitlink    *sudog // g.waiting list
+	parent      *sudog // semaRoot binary tree
+	waitlink    *sudog // g.waiting list or semaRoot
+	waittail    *sudog // semaRoot
 	c           *hchan // channel
-}
-
-type gcstats struct {
-	// the struct must consist of only uint64's,
-	// because it is casted to uint64[].
-	nhandoff    uint64
-	nhandoffcnt uint64
-	nprocyield  uint64
-	nosyield    uint64
-	nsleep      uint64
 }
 
 /*
@@ -318,12 +312,6 @@ type stack struct {
 	lo uintptr
 	hi uintptr
 }
-
-// stkbar records the state of a G's stack barrier.
-type stkbar struct {
-	savedLRPtr uintptr // location overwritten by stack barrier PC
-	savedLRVal uintptr // value overwritten at savedLRPtr
-}
 */
 
 type g struct {
@@ -341,12 +329,9 @@ type g struct {
 	_panic *_panic // innermost panic - offset known to liblink
 	_defer *_defer // innermost defer
 	m      *m      // current m; offset known to arm liblink
-	// Not for gccgo: stackAlloc     uintptr // stack allocation is [stack.lo,stack.lo+stackAlloc)
 	// Not for gccgo: sched          gobuf
 	syscallsp uintptr // if status==Gsyscall, syscallsp = sched.sp to use during gc
 	syscallpc uintptr // if status==Gsyscall, syscallpc = sched.pc to use during gc
-	// Not for gccgo: stkbar         []stkbar       // stack barriers, from low to high (see top of mstkbar.go)
-	// Not for gccgo: stkbarPos      uintptr        // index of lowest stack barrier not hit
 	// Not for gccgo: stktopsp       uintptr        // expected sp at top of stack, to check in traceback
 	param        unsafe.Pointer // passed parameter on wakeup
 	atomicstatus uint32
@@ -359,7 +344,7 @@ type g struct {
 	paniconfault   bool     // panic (instead of crash) on unexpected fault address
 	preemptscan    bool     // preempted g does scan for gc
 	gcscandone     bool     // g has scanned stack; protected by _Gscan bit in status
-	gcscanvalid    bool     // false at start of gc cycle, true if G has not run since last scan; transition from true to false by calling queueRescan and false to true by calling dequeueRescan
+	gcscanvalid    bool     // false at start of gc cycle, true if G has not run since last scan; TODO: remove?
 	throwsplit     bool     // must not split stack
 	raceignore     int8     // ignore race detection events
 	sysblocktraced bool     // StartTrace has emitted EvGoInSyscall about this goroutine
@@ -376,16 +361,11 @@ type g struct {
 	startpc        uintptr // pc of goroutine function
 	// Not for gccgo: racectx        uintptr
 	waiting *sudog // sudog structures this g is waiting on (that have a valid elem ptr); in lock order
-	// Not for gccgo: cgoCtxt        []uintptr // cgo traceback context
+	// Not for gccgo: cgoCtxt        []uintptr      // cgo traceback context
+	labels unsafe.Pointer // profiler labels
+	timer  *timer         // cached timer for time.Sleep
 
 	// Per-G GC state
-
-	// gcRescan is this G's index in work.rescan.list. If this is
-	// -1, this G is not on the rescan list.
-	//
-	// If gcphase != _GCoff and this G is visible to the garbage
-	// collector, writes to this are protected by work.rescan.lock.
-	gcRescan int32
 
 	// gcAssistBytes is this G's GC assist credit in terms of
 	// bytes allocated. If this is positive, then the G has credit
@@ -402,23 +382,25 @@ type g struct {
 	isforeign bool           // whether current exception is not from Go
 
 	// Fields that hold stack and context information if status is Gsyscall
-	gcstack       unsafe.Pointer
+	gcstack       uintptr
 	gcstacksize   uintptr
-	gcnextsegment unsafe.Pointer
-	gcnextsp      unsafe.Pointer
+	gcnextsegment uintptr
+	gcnextsp      uintptr
 	gcinitialsp   unsafe.Pointer
 	gcregs        g_ucontext_t
 
-	entry    unsafe.Pointer // goroutine entry point
-	fromgogo bool           // whether entered from gogo function
+	entry    func(unsafe.Pointer) // goroutine function to run
+	entryfn  uintptr              // function address passed to __go_go
+	fromgogo bool                 // whether entered from gogo function
 
-	issystem     bool // do not output in stack dump
-	isbackground bool // ignore in deadlock detector
+	scanningself bool // whether goroutine is scanning its own stack
+
+	isSystemGoroutine bool // whether goroutine is a "system" goroutine
 
 	traceback *tracebackg // stack traceback buffer
 
-	context      g_ucontext_t       // saved context for setcontext
-	stackcontext [10]unsafe.Pointer // split-stack context
+	context      g_ucontext_t // saved context for setcontext
+	stackcontext [10]uintptr  // split-stack context
 }
 
 type m struct {
@@ -431,7 +413,7 @@ type m struct {
 	gsignal *g     // signal-handling g
 	sigmask sigset // storage for saved signal mask
 	// Not for gccgo: tls           [6]uintptr // thread-local storage (for x86 extern register)
-	mstartfn    uintptr
+	mstartfn    func()
 	curg        *g       // current running goroutine
 	caughtsig   guintptr // goroutine running during fatal signal
 	p           puintptr // attached p for executing go code (nil if not executing go code)
@@ -450,6 +432,7 @@ type m struct {
 	inwb        bool // m is executing a write barrier
 	newSigstack bool // minit on C thread called sigaltstack
 	printlock   int8
+	incgo       bool // m is executing a cgo call
 	fastrand    uint32
 	ncgocall    uint64 // number of cgo calls in total
 	ncgo        int32  // number of cgo calls currently in progress
@@ -466,7 +449,6 @@ type m struct {
 	// Not for gccgo: fflag         uint32      // floating point compare flags
 	locked        uint32  // tracking for lockosthread
 	nextwaitm     uintptr // next m waiting for lock
-	gcstats       gcstats
 	needextram    bool
 	traceback     uint8
 	waitunlockf   unsafe.Pointer // todo go func(*g, unsafe.pointer) bool
@@ -503,9 +485,10 @@ type p struct {
 	id          int32
 	status      uint32 // one of pidle/prunning/...
 	link        puintptr
-	schedtick   uint32   // incremented on every scheduler call
-	syscalltick uint32   // incremented on every system call
-	m           muintptr // back-link to associated m (nil if idle)
+	schedtick   uint32     // incremented on every scheduler call
+	syscalltick uint32     // incremented on every system call
+	sysmontick  sysmontick // last tick observed by sysmon
+	m           muintptr   // back-link to associated m (nil if idle)
 	mcache      *mcache
 	// Not for gccgo: racectx     uintptr
 
@@ -541,7 +524,15 @@ type p struct {
 
 	tracebuf traceBufPtr
 
-	// Not for gccgo for now: palloc persistentAlloc // per-P to avoid mutex
+	// traceSweep indicates the sweep events should be traced.
+	// This is used to defer the sweep start event until a span
+	// has actually been swept.
+	traceSweep bool
+	// traceSwept and traceReclaimed track the number of bytes
+	// swept and reclaimed by sweeping in the current sweep loop.
+	traceSwept, traceReclaimed uintptr
+
+	palloc persistentAlloc // per-P to avoid mutex
 
 	// Per-P GC state
 	gcAssistTime     int64 // Nanoseconds in assistAlloc
@@ -551,7 +542,7 @@ type p struct {
 	// gcw is this P's GC work buffer cache. The work buffer is
 	// filled by write barriers, drained by mutator assists, and
 	// disposed on certain GC state transitions.
-	// Not for gccgo for now: gcw gcWork
+	gcw gcWork
 
 	runSafePointFn uint32 // if 1, run sched.safePointFn at next safe point
 
@@ -561,7 +552,7 @@ type p struct {
 const (
 	// The max value of GOMAXPROCS.
 	// There are no fundamental restrictions on the value.
-	_MaxGomaxprocs = 1 << 8
+	_MaxGomaxprocs = 1 << 10
 )
 
 type schedt struct {
@@ -637,7 +628,6 @@ const (
 	_SigThrow                // if signal.Notify doesn't take it, exit loudly
 	_SigPanic                // if the signal is from the kernel, panic
 	_SigDefault              // if the signal isn't explicitly requested, don't monitor it
-	_SigHandling             // our signal handler is registered
 	_SigGoExit               // cause all runtime procs to exit (only used on Plan 9).
 	_SigSetStack             // add SA_ONSTACK to libc handler
 	_SigUnblock              // unblocked in minit
@@ -696,6 +686,10 @@ type _defer struct {
 	// deferred.  This function can not recover this value from
 	// the panic stack.  This can happen if a deferred function
 	// has a defer statement itself.
+	panicStack *_panic
+
+	// The panic that caused the defer to run. This is used to
+	// discard panics that have already been handled.
 	_panic *_panic
 
 	// The function to call.
@@ -714,10 +708,6 @@ type _defer struct {
 	// function function will be somewhere in libffi, so __retaddr
 	// is not useful.
 	makefunccanrecover bool
-
-	// Set to true if this defer stack entry is not part of the
-	// defer pool.
-	special bool
 }
 
 // panics
@@ -735,6 +725,10 @@ type _panic struct {
 	// Whether this panic was pushed on the stack because of an
 	// exception thrown in some other language.
 	isforeign bool
+
+	// Whether this panic was already seen by a deferred function
+	// which called panic again.
+	aborted bool
 }
 
 const (
@@ -747,13 +741,10 @@ const (
 const _TracebackMaxFrames = 100
 
 var (
-	//	emptystring string
-
 	allglen    uintptr
 	allm       *m
 	allp       [_MaxGomaxprocs + 1]*p
 	gomaxprocs int32
-	panicking  uint32
 	ncpu       int32
 	forcegc    forcegcstate
 	sched      schedt
@@ -761,6 +752,8 @@ var (
 
 	// Information about what cpu features are available.
 	// Set on startup in asm_{x86,amd64}.s.
+	// Packages outside the runtime should not use these
+	// as they are not an external api.
 	cpuid_ecx   uint32
 	support_aes bool
 
@@ -790,8 +783,15 @@ var (
 // aligned to a 16-byte boundary.  We implement this by increasing the
 // required size and picking an appropriate offset when we use the
 // array.
-type g_ucontext_t [(_sizeof_ucontext_t + 15) / unsafe.Sizeof(unsafe.Pointer(nil))]unsafe.Pointer
+type g_ucontext_t [(_sizeof_ucontext_t + 15) / unsafe.Sizeof(uintptr(0))]uintptr
 
 // sigset is the Go version of the C type sigset_t.
 // _sigset_t is defined by the Makefile from <signal.h>.
 type sigset _sigset_t
+
+// getMemstats returns a pointer to the internal memstats variable,
+// for C code.
+//go:linkname getMemstats runtime.getMemstats
+func getMemstats() *mstats {
+	return &memstats
+}

@@ -1,5 +1,5 @@
 /* Subroutines used for code generation on Renesas RL78 processors.
-   Copyright (C) 2011-2017 Free Software Foundation, Inc.
+   Copyright (C) 2011-2018 Free Software Foundation, Inc.
    Contributed by Red Hat.
 
    This file is part of GCC.
@@ -18,6 +18,8 @@
    along with GCC; see the file COPYING3.  If not see
    <http://www.gnu.org/licenses/>.  */
 
+#define IN_TARGET_CODE 1
+
 #include "config.h"
 #include "system.h"
 #include "coretypes.h"
@@ -29,6 +31,7 @@
 #include "memmodel.h"
 #include "tm_p.h"
 #include "stringpool.h"
+#include "attribs.h"
 #include "optabs.h"
 #include "emit-rtl.h"
 #include "recog.h"
@@ -86,12 +89,12 @@ struct mduc_reg_type
 
 struct mduc_reg_type  mduc_regs[] =
 {
-  {0xf00e8, QImode},
-  {0xffff0, HImode},
-  {0xffff2, HImode},
-  {0xf2224, HImode},
-  {0xf00e0, HImode},
-  {0xf00e2, HImode}
+  {0xf00e8, E_QImode},
+  {0xffff0, E_HImode},
+  {0xffff2, E_HImode},
+  {0xf2224, E_HImode},
+  {0xf00e0, E_HImode},
+  {0xf00e2, E_HImode}
 };
 
 struct GTY(()) machine_function
@@ -359,6 +362,7 @@ rl78_option_override (void)
   if (TARGET_ES0
       && strcmp (lang_hooks.name, "GNU C")
       && strcmp (lang_hooks.name, "GNU C11")
+      && strcmp (lang_hooks.name, "GNU C17")
       && strcmp (lang_hooks.name, "GNU C89")
       && strcmp (lang_hooks.name, "GNU C99")
       /* Compiling with -flto results in a language of GNU GIMPLE being used... */
@@ -448,9 +452,11 @@ rl78_real_insns_ok (void)
   return false;
 }
 
-/* Implements HARD_REGNO_NREGS.  */
-int
-rl78_hard_regno_nregs (int regno, machine_mode mode)
+#undef TARGET_HARD_REGNO_NREGS
+#define TARGET_HARD_REGNO_NREGS rl78_hard_regno_nregs
+
+static unsigned int
+rl78_hard_regno_nregs (unsigned int regno, machine_mode mode)
 {
   int rs = register_sizes[regno];
   if (rs < 1)
@@ -458,34 +464,48 @@ rl78_hard_regno_nregs (int regno, machine_mode mode)
   return ((GET_MODE_SIZE (mode) + rs - 1) / rs);
 }
 
-/* Implements HARD_REGNO_MODE_OK.  */
-int
-rl78_hard_regno_mode_ok (int regno, machine_mode mode)
+#undef TARGET_HARD_REGNO_MODE_OK
+#define TARGET_HARD_REGNO_MODE_OK rl78_hard_regno_mode_ok
+
+static bool
+rl78_hard_regno_mode_ok (unsigned int regno, machine_mode mode)
 {
   int s = GET_MODE_SIZE (mode);
 
   if (s < 1)
-    return 0;
+    return false;
   /* These are not to be used by gcc.  */
   if (regno == 23 || regno == ES_REG || regno == CS_REG)
-    return 0;
+    return false;
   /* $fp can always be accessed as a 16-bit value.  */
   if (regno == FP_REG && s == 2)
-    return 1;
+    return true;
   if (regno < SP_REG)
     {
       /* Since a reg-reg move is really a reg-mem move, we must
 	 enforce alignment.  */
       if (s > 1 && (regno % 2))
-	return 0;
-      return 1;
+	return false;
+      return true;
     }
   if (s == CC_REGNUM)
     return (mode == BImode);
   /* All other registers must be accessed in their natural sizes.  */
   if (s == register_sizes [regno])
-    return 1;
-  return 0;
+    return true;
+  return false;
+}
+
+#undef TARGET_MODES_TIEABLE_P
+#define TARGET_MODES_TIEABLE_P rl78_modes_tieable_p
+
+static bool
+rl78_modes_tieable_p (machine_mode mode1, machine_mode mode2)
+{
+  return ((GET_MODE_CLASS (mode1) == MODE_FLOAT
+	   || GET_MODE_CLASS (mode1) == MODE_COMPLEX_FLOAT)
+	  == (GET_MODE_CLASS (mode2) == MODE_FLOAT
+	      || GET_MODE_CLASS (mode2) == MODE_COMPLEX_FLOAT));
 }
 
 /* Simplify_gen_subreg() doesn't handle memory references the way we
@@ -539,7 +559,7 @@ rl78_expand_movsi (rtx *operands)
 
 /* Generate code to move an SImode value.  */
 void
-rl78_split_movsi (rtx *operands, enum machine_mode omode)
+rl78_split_movsi (rtx *operands, machine_mode omode)
 {
   rtx op00, op02, op10, op12;
 
@@ -839,17 +859,17 @@ rl78_handle_saddr_attribute (tree * node,
 /* Table of RL78-specific attributes.  */
 const struct attribute_spec rl78_attribute_table[] =
 {
-  /* Name, min_len, max_len, decl_req, type_req, fn_type_req, handler,
-     affects_type_identity.  */
-  { "interrupt",      0, 0, true, false, false, rl78_handle_func_attribute,
-    false },
-  { "brk_interrupt",  0, 0, true, false, false, rl78_handle_func_attribute,
-    false },
-  { "naked",          0, 0, true, false, false, rl78_handle_naked_attribute,
-    false },
-  { "saddr",          0, 0, true, false, false, rl78_handle_saddr_attribute,
-    false },
-  { NULL,             0, 0, false, false, false, NULL, false }
+  /* Name, min_len, max_len, decl_req, type_req, fn_type_req,
+     affects_type_identity, handler, exclude.  */
+  { "interrupt",      0, 0, true, false, false, false,
+    rl78_handle_func_attribute, NULL },
+  { "brk_interrupt",  0, 0, true, false, false, false,
+    rl78_handle_func_attribute, NULL },
+  { "naked",          0, 0, true, false, false, false,
+    rl78_handle_naked_attribute, NULL },
+  { "saddr",          0, 0, true, false, false, false,
+    rl78_handle_saddr_attribute, NULL },
+  { NULL,             0, 0, false, false, false, false, NULL, NULL }
 };
 
 
@@ -997,7 +1017,7 @@ rl78_hl_b_c_addr_p (rtx op)
 #undef  TARGET_ADDR_SPACE_ADDRESS_MODE
 #define TARGET_ADDR_SPACE_ADDRESS_MODE rl78_addr_space_address_mode
 
-static enum machine_mode
+static scalar_int_mode
 rl78_addr_space_address_mode (addr_space_t addrspace)
 {
   switch (addrspace)
@@ -1037,7 +1057,7 @@ rl78_far_p (rtx x)
 #undef  TARGET_ADDR_SPACE_POINTER_MODE
 #define TARGET_ADDR_SPACE_POINTER_MODE rl78_addr_space_pointer_mode
 
-static machine_mode
+static scalar_int_mode
 rl78_addr_space_pointer_mode (addr_space_t addrspace)
 {
   switch (addrspace)
@@ -1058,7 +1078,7 @@ rl78_addr_space_pointer_mode (addr_space_t addrspace)
 #define TARGET_VALID_POINTER_MODE rl78_valid_pointer_mode
 
 static bool
-rl78_valid_pointer_mode (machine_mode m)
+rl78_valid_pointer_mode (scalar_int_mode m)
 {
   return (m == HImode || m == SImode);
 }
@@ -1552,7 +1572,7 @@ rl78_expand_eh_epilogue (rtx x ATTRIBUTE_UNUSED)
    this to insert a comment in the asm file describing the
    function.  */
 static void
-rl78_start_function (FILE *file, HOST_WIDE_INT hwi_local ATTRIBUTE_UNUSED)
+rl78_start_function (FILE *file)
 {
   int i;
 
@@ -4637,7 +4657,7 @@ rl78_asm_out_integer (rtx x, unsigned int size, int aligned_p)
 #undef  TARGET_UNWIND_WORD_MODE
 #define TARGET_UNWIND_WORD_MODE rl78_unwind_word_mode
 
-static machine_mode
+static scalar_int_mode
 rl78_unwind_word_mode (void)
 {
   return HImode;
@@ -4772,6 +4792,45 @@ rl78_addsi3_internal (rtx * operands, unsigned int alternative)
     default:
       gcc_unreachable ();
     }
+}
+
+rtx
+rl78_emit_libcall (const char *name, enum rtx_code code,
+                   enum machine_mode dmode, enum machine_mode smode,
+                   int noperands, rtx *operands)
+{
+  rtx ret;
+  rtx_insn *insns;
+  rtx libcall;
+  rtx equiv;
+
+  start_sequence ();
+  libcall = gen_rtx_SYMBOL_REF (Pmode, name);
+
+  switch (noperands)
+    {
+    case 2:
+      ret = emit_library_call_value (libcall, NULL_RTX, LCT_CONST,
+                                     dmode, operands[1], smode);
+      equiv = gen_rtx_fmt_e (code, dmode, operands[1]);
+      break;
+
+    case 3:
+      ret = emit_library_call_value (libcall, NULL_RTX,
+                                     LCT_CONST, dmode,
+                                     operands[1], smode, operands[2],
+                                     smode);
+      equiv = gen_rtx_fmt_ee (code, dmode, operands[1], operands[2]);
+      break;
+
+    default:
+      gcc_unreachable ();
+    }
+
+  insns = get_insns ();
+  end_sequence ();
+  emit_libcall_block (insns, operands[0], ret, equiv);
+  return ret;
 }
 
 

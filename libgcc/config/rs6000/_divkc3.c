@@ -1,4 +1,4 @@
-/* Copyright (C) 1989-2017 Free Software Foundation, Inc.
+/* Copyright (C) 1989-2018 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -32,6 +32,12 @@ typedef __complex float KCtype __attribute__ ((mode (KC)));
 #define isnan __builtin_isnan
 #define isinf __builtin_isinf
 #define isfinite __builtin_isfinite
+
+#if defined(FLOAT128_HW_INSNS) && !defined(__divkc3)
+#define __divkc3 __divkc3_sw
+#endif
+
+extern KCtype __divkc3 (KFtype, KFtype, KFtype, KFtype);
 
 KCtype
 __divkc3 (KFtype a, KFtype b, KFtype c, KFtype d)

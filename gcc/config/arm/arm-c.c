@@ -1,4 +1,4 @@
-/* Copyright (C) 2007-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2007-2018 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -15,6 +15,8 @@
    You should have received a copy of the GNU General Public License
    along with GCC; see the file COPYING3.  If not see
    <http://www.gnu.org/licenses/>.  */
+
+#define IN_TARGET_CODE 1
 
 #include "config.h"
 #include "system.h"
@@ -72,11 +74,11 @@ arm_cpu_builtins (struct cpp_reader* pfile)
 
   def_or_undef_macro (pfile, "__ARM_FEATURE_QRDMX", TARGET_NEON_RDMA);
 
-  if (TARGET_CRC32)
-    builtin_define ("__ARM_FEATURE_CRC32");
-
+  def_or_undef_macro (pfile, "__ARM_FEATURE_CRC32", TARGET_CRC32);
+  def_or_undef_macro (pfile, "__ARM_FEATURE_DOTPROD", TARGET_DOTPROD);
   def_or_undef_macro (pfile, "__ARM_32BIT_STATE", TARGET_32BIT);
 
+  cpp_undef (pfile, "__ARM_FEATURE_CMSE");
   if (arm_arch8 && !arm_arch_notm)
     {
       if (arm_arch_cmse && use_cmse)
@@ -96,7 +98,7 @@ arm_cpu_builtins (struct cpp_reader* pfile)
 		       || TARGET_ARM_ARCH_ISA_THUMB >=2));
 
   def_or_undef_macro (pfile, "__ARM_FEATURE_NUMERIC_MAXMIN",
-		      TARGET_ARM_ARCH >= 8 && TARGET_NEON && TARGET_FPU_ARMV8);
+		      TARGET_ARM_ARCH >= 8 && TARGET_NEON && TARGET_VFP5);
 
   def_or_undef_macro (pfile, "__ARM_FEATURE_SIMD32", TARGET_INT_SIMD);
 
@@ -200,6 +202,22 @@ arm_cpu_builtins (struct cpp_reader* pfile)
   def_or_undef_macro (pfile, "__ARM_FEATURE_IDIV", TARGET_IDIV);
 
   def_or_undef_macro (pfile, "__ARM_ASM_SYNTAX_UNIFIED__", inline_asm_unified);
+
+  if (TARGET_32BIT && arm_arch4 && !(arm_arch8 && arm_arch_notm))
+    {
+      int coproc_level = 0x1;
+
+      if (arm_arch5)
+	coproc_level |= 0x2;
+      if (arm_arch5e)
+	coproc_level |= 0x4;
+      if (arm_arch6)
+	coproc_level |= 0x8;
+
+      builtin_define_with_int_value ("__ARM_FEATURE_COPROC", coproc_level);
+    }
+  else
+      cpp_undef (pfile, "__ARM_FEATURE_COPROC");
 }
 
 void

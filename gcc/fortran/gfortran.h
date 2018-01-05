@@ -1,5 +1,5 @@
 /* gfortran header file
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2018 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -646,6 +646,13 @@ enum gfc_reverse
   GFC_INHIBIT_REVERSE
 };
 
+enum gfc_param_spec_type
+{
+  SPEC_EXPLICIT,
+  SPEC_ASSUMED,
+  SPEC_DEFERRED
+};
+
 /************************* Structures *****************************/
 
 /* Used for keeping things in balanced binary trees.  */
@@ -863,11 +870,16 @@ typedef struct
   unsigned alloc_comp:1, pointer_comp:1, proc_pointer_comp:1,
 	   private_comp:1, zero_comp:1, coarray_comp:1, lock_comp:1,
 	   event_comp:1, defined_assign_comp:1, unlimited_polymorphic:1,
-	   has_dtio_procs:1;
+	   has_dtio_procs:1, caf_token:1;
 
   /* This is a temporary selector for SELECT TYPE or an associate
      variable for SELECT_TYPE or ASSOCIATE.  */
   unsigned select_type_temporary:1, associate_var:1;
+
+  /* These are the attributes required for parameterized derived
+     types.  */
+  unsigned pdt_kind:1, pdt_len:1, pdt_type:1, pdt_template:1,
+	   pdt_array:1, pdt_string:1;
 
   /* This is omp_{out,in,priv,orig} artificial variable in
      !$OMP DECLARE REDUCTION.  */
@@ -1012,6 +1024,7 @@ typedef struct
   int is_iso_c;
   bt f90_type;
   bool deferred;
+  gfc_symbol *interop_kind;
 }
 gfc_typespec;
 
@@ -1052,6 +1065,11 @@ typedef struct gfc_component
   tree norestrict_decl;
   locus loc;
   struct gfc_expr *initializer;
+  /* Used in parameterized derived type declarations to store parameterized
+     kind expressions.  */
+  struct gfc_expr *kind_expr;
+  struct gfc_actual_arglist *param_list;
+
   struct gfc_component *next;
 
   /* Needed for procedure pointer components.  */
@@ -1076,7 +1094,8 @@ gfc_formal_arglist;
 #define gfc_get_formal_arglist() XCNEW (gfc_formal_arglist)
 
 
-/* The gfc_actual_arglist structure is for actual arguments.  */
+/* The gfc_actual_arglist structure is for actual arguments and
+   for type parameter specification lists.  */
 typedef struct gfc_actual_arglist
 {
   const char *name;
@@ -1087,6 +1106,8 @@ typedef struct gfc_actual_arglist
      argument. This is used to determine if a hidden string length
      argument has to be added to a function call.  */
   bt missing_arg_type;
+
+  gfc_param_spec_type spec_type;
 
   struct gfc_expr *expr;
   struct gfc_actual_arglist *next;
@@ -1241,7 +1262,8 @@ enum gfc_omp_default_sharing
   OMP_DEFAULT_NONE,
   OMP_DEFAULT_PRIVATE,
   OMP_DEFAULT_SHARED,
-  OMP_DEFAULT_FIRSTPRIVATE
+  OMP_DEFAULT_FIRSTPRIVATE,
+  OMP_DEFAULT_PRESENT
 };
 
 enum gfc_omp_proc_bind_kind
@@ -1504,6 +1526,9 @@ typedef struct gfc_symbol
   gfc_formal_arglist *formal;
   struct gfc_namespace *formal_ns;
   struct gfc_namespace *f2k_derived;
+
+  /* List of PDT parameter expressions  */
+  struct gfc_actual_arglist *param_list;
 
   struct gfc_expr *value;	/* Parameter/Initializer value */
   gfc_array_spec *as;
@@ -1964,7 +1989,7 @@ gfc_intrinsic_arg;
    argument lists of intrinsic functions. fX with X an integer refer
    to check functions of intrinsics with X arguments. f1m is used for
    the MAX and MIN intrinsics which can have an arbitrary number of
-   arguments, f3ml is used for the MINLOC and MAXLOC intrinsics as
+   arguments, f4ml is used for the MINLOC and MAXLOC intrinsics as
    these have special semantics.  */
 
 typedef union
@@ -1974,7 +1999,7 @@ typedef union
   bool (*f1m)(gfc_actual_arglist *);
   bool (*f2)(struct gfc_expr *, struct gfc_expr *);
   bool (*f3)(struct gfc_expr *, struct gfc_expr *, struct gfc_expr *);
-  bool (*f3ml)(gfc_actual_arglist *);
+  bool (*f4ml)(gfc_actual_arglist *);
   bool (*f3red)(gfc_actual_arglist *);
   bool (*f4)(struct gfc_expr *, struct gfc_expr *, struct gfc_expr *,
 	    struct gfc_expr *);
@@ -2067,6 +2092,14 @@ gfc_intrinsic_sym;
 
 typedef splay_tree gfc_constructor_base;
 
+
+/* This should be an unsigned variable of type size_t.  But to handle
+   compiling to a 64-bit target from a 32-bit host, we need to use a
+   HOST_WIDE_INT.  Also, occasionally the string length field is used
+   as a flag with values -1 and -2, see e.g. gfc_add_assign_aux_vars.
+   So it needs to be signed.  */
+typedef HOST_WIDE_INT gfc_charlen_t;
+
 typedef struct gfc_expr
 {
   expr_t expr_type;
@@ -2112,7 +2145,7 @@ typedef struct gfc_expr
      the value.  */
   struct
   {
-    int length;
+    gfc_charlen_t length;
     char *string;
   }
   representation;
@@ -2168,7 +2201,7 @@ typedef struct gfc_expr
 
     struct
     {
-      int length;
+      gfc_charlen_t length;
       gfc_char_t *string;
     }
     character;
@@ -2176,6 +2209,9 @@ typedef struct gfc_expr
     gfc_constructor_base constructor;
   }
   value;
+
+  /* Used to store PDT expression lists associated with expressions.  */
+  gfc_actual_arglist *param_list;
 
 }
 gfc_expr;
@@ -2322,6 +2358,7 @@ gfc_case;
 typedef struct
 {
   gfc_expr *var, *start, *end, *step;
+  unsigned short unroll;
 }
 gfc_iterator;
 
@@ -2696,6 +2733,13 @@ gfc_finalizer;
 /* decl.c */
 bool gfc_in_match_data (void);
 match gfc_match_char_spec (gfc_typespec *);
+extern int directive_unroll;
+
+/* Handling Parameterized Derived Types  */
+bool gfc_insert_kind_parameter_exprs (gfc_expr *);
+bool gfc_insert_parameter_exprs (gfc_expr *, gfc_actual_arglist *);
+match gfc_get_pdt_instance (gfc_actual_arglist *, gfc_symbol **,
+			    gfc_actual_arglist **);
 
 /* scanner.c */
 void gfc_scanner_done_1 (void);
@@ -2761,6 +2805,20 @@ void gfc_done_1 (void);
 void gfc_done_2 (void);
 
 int get_c_kind (const char *, CInteropKind_t *);
+
+const char *gfc_closest_fuzzy_match (const char *, char **);
+static inline void
+vec_push (char **&optr, size_t &osz, const char *elt)
+{
+  /* {auto,}vec.safe_push () replacement.  Don't ask..  */
+  // if (strlen (elt) < 4) return; premature optimization: eliminated by cutoff
+  optr = XRESIZEVEC (char *, optr, osz + 2);
+  optr[osz] = CONST_CAST (char *, elt);
+  optr[++osz] = NULL;
+}
+
+HOST_WIDE_INT gfc_mpz_get_hwi (mpz_t);
+void gfc_mpz_set_hwi (mpz_t, const HOST_WIDE_INT);
 
 /* options.c */
 unsigned int gfc_option_lang_mask (void);
@@ -2853,6 +2911,7 @@ extern int gfc_atomic_int_kind;
 extern int gfc_atomic_logical_kind;
 extern int gfc_intio_kind;
 extern int gfc_charlen_int_kind;
+extern int gfc_size_kind;
 extern int gfc_numeric_storage_size;
 extern int gfc_character_storage_size;
 
@@ -2878,6 +2937,8 @@ bool gfc_add_dimension (symbol_attribute *, const char *, locus *);
 bool gfc_add_external (symbol_attribute *, locus *);
 bool gfc_add_intrinsic (symbol_attribute *, locus *);
 bool gfc_add_optional (symbol_attribute *, locus *);
+bool gfc_add_kind (symbol_attribute *, locus *);
+bool gfc_add_len (symbol_attribute *, locus *);
 bool gfc_add_pointer (symbol_attribute *, locus *);
 bool gfc_add_cray_pointer (symbol_attribute *, locus *);
 bool gfc_add_cray_pointee (symbol_attribute *, locus *);
@@ -2988,6 +3049,7 @@ void gfc_free_dt_list (void);
 
 gfc_gsymbol *gfc_get_gsymbol (const char *);
 gfc_gsymbol *gfc_find_gsymbol (gfc_gsymbol *, const char *);
+gfc_gsymbol *gfc_find_case_gsymbol (gfc_gsymbol *, const char *);
 
 gfc_typebound_proc* gfc_get_typebound_proc (gfc_typebound_proc*);
 gfc_symbol* gfc_get_derived_super_type (gfc_symbol*);
@@ -3067,7 +3129,8 @@ void gfc_free_omp_declare_simd_list (gfc_omp_declare_simd *);
 void gfc_free_omp_udr (gfc_omp_udr *);
 gfc_omp_udr *gfc_omp_udr_find (gfc_symtree *, gfc_typespec *);
 void gfc_resolve_omp_directive (gfc_code *, gfc_namespace *);
-void gfc_resolve_do_iterator (gfc_code *, gfc_symbol *);
+void gfc_resolve_do_iterator (gfc_code *, gfc_symbol *, bool);
+void gfc_resolve_omp_local_vars (gfc_namespace *);
 void gfc_resolve_omp_parallel_blocks (gfc_code *, gfc_namespace *);
 void gfc_resolve_omp_do_blocks (gfc_code *, gfc_namespace *);
 void gfc_resolve_omp_declare_simd (gfc_namespace *);
@@ -3083,7 +3146,10 @@ void gfc_resolve_oacc_blocks (gfc_code *, gfc_namespace *);
 /* expr.c */
 void gfc_free_actual_arglist (gfc_actual_arglist *);
 gfc_actual_arglist *gfc_copy_actual_arglist (gfc_actual_arglist *);
+
 bool gfc_extract_int (gfc_expr *, int *, int = 0);
+bool gfc_extract_hwi (gfc_expr *, HOST_WIDE_INT *, int = 0);
+
 bool is_subref_array (gfc_expr *);
 bool gfc_is_simply_contiguous (gfc_expr *, bool, bool);
 bool gfc_check_init_expr (gfc_expr *);
@@ -3101,8 +3167,8 @@ gfc_expr *gfc_get_null_expr (locus *);
 gfc_expr *gfc_get_operator_expr (locus *, gfc_intrinsic_op,gfc_expr *, gfc_expr *);
 gfc_expr *gfc_get_structure_constructor_expr (bt, int, locus *);
 gfc_expr *gfc_get_constant_expr (bt, int, locus *);
-gfc_expr *gfc_get_character_expr (int, locus *, const char *, int len);
-gfc_expr *gfc_get_int_expr (int, locus *, int);
+gfc_expr *gfc_get_character_expr (int, locus *, const char *, gfc_charlen_t len);
+gfc_expr *gfc_get_int_expr (int, locus *, HOST_WIDE_INT);
 gfc_expr *gfc_get_logical_expr (int, locus *, bool);
 gfc_expr *gfc_get_iokind_expr (locus *, io_kind);
 
@@ -3126,6 +3192,7 @@ bool gfc_check_pointer_assign (gfc_expr *, gfc_expr *);
 bool gfc_check_assign_symbol (gfc_symbol *, gfc_component *, gfc_expr *);
 
 gfc_expr *gfc_build_default_init_expr (gfc_typespec *, locus *);
+gfc_expr *gfc_build_init_expr (gfc_typespec *, locus *, bool);
 void gfc_apply_init (gfc_typespec *, symbol_attribute *, gfc_expr *);
 bool gfc_has_default_initializer (gfc_symbol *);
 gfc_expr *gfc_default_initializer (gfc_typespec *);
@@ -3141,11 +3208,12 @@ bool gfc_traverse_expr (gfc_expr *, gfc_symbol *,
 			int);
 void gfc_expr_set_symbols_referenced (gfc_expr *);
 bool gfc_expr_check_typed (gfc_expr*, gfc_namespace*, bool);
-
+bool gfc_derived_parameter_expr (gfc_expr *);
+gfc_param_spec_type gfc_spec_list_type (gfc_actual_arglist *, gfc_symbol *);
 gfc_component * gfc_get_proc_ptr_comp (gfc_expr *);
 bool gfc_is_proc_ptr_comp (gfc_expr *);
 bool gfc_is_alloc_class_scalar_function (gfc_expr *);
-bool gfc_is_alloc_class_array_function (gfc_expr *);
+bool gfc_is_class_array_function (gfc_expr *);
 
 bool gfc_ref_this_image (gfc_ref *ref);
 bool gfc_is_coindexed (gfc_expr *);
@@ -3191,6 +3259,7 @@ bool gfc_type_is_extensible (gfc_symbol *);
 bool gfc_resolve_intrinsic (gfc_symbol *, locus *);
 bool gfc_explicit_interface_required (gfc_symbol *, char *, int);
 extern int gfc_do_concurrent_flag;
+const char* gfc_lookup_function_fuzzy (const char *, gfc_symtree *);
 
 
 /* array.c */
@@ -3274,6 +3343,7 @@ void gfc_free_dt (gfc_dt *);
 bool gfc_resolve_dt (gfc_dt *, locus *);
 void gfc_free_wait (gfc_wait *);
 bool gfc_resolve_wait (gfc_wait *);
+extern bool async_io_dt;
 
 /* module.c */
 void gfc_module_init_2 (void);
@@ -3310,6 +3380,7 @@ void gfc_delete_bbt (void *, void *, compare_fn);
 
 /* dump-parse-tree.c */
 void gfc_dump_parse_tree (gfc_namespace *, FILE *);
+void gfc_dump_c_prototypes (gfc_namespace *, FILE *);
 
 /* parse.c */
 bool gfc_parse_file (void);

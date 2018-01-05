@@ -1012,7 +1012,7 @@ __gnat_open_new_temp (char *path, int fmode)
 
 #if (defined (__FreeBSD__) || defined (__NetBSD__) || defined (__OpenBSD__) \
   || defined (__linux__) || defined (__GLIBC__) || defined (__ANDROID__) \
-  || defined (__DragonFly__)) && !defined (__vxworks)
+  || defined (__DragonFly__) || defined (__QNX__)) && !defined (__vxworks)
   return mkstemp (path);
 #elif defined (__Lynx__)
   mktemp (path);
@@ -1185,7 +1185,7 @@ __gnat_tmp_name (char *tmp_filename)
 
 #elif defined (__linux__) || defined (__FreeBSD__) || defined (__NetBSD__) \
   || defined (__OpenBSD__) || defined (__GLIBC__) || defined (__ANDROID__) \
-  || defined (__DragonFly__)
+  || defined (__DragonFly__) || defined (__QNX__)
 #define MAX_SAFE_PATH 1000
   char *tmpdir = getenv ("TMPDIR");
 
@@ -1221,7 +1221,7 @@ __gnat_tmp_name (char *tmp_filename)
 
       /* Fill up the name buffer from the last position.  */
       seed++;
-      for (t = seed; 0 <= --index; t >>= 3)
+      for (t = seed; --index >= 0; t >>= 3)
         *--pos = '0' + (t & 07);
 
       /* Check to see if its unique, if not bump the seed and try again.  */
@@ -2551,6 +2551,7 @@ win32_wait (int *status)
   DWORD res;
   int hl_len;
   int found;
+  int pos;
 
  START_WAIT:
 
@@ -2563,7 +2564,15 @@ win32_wait (int *status)
   /* -------------------- critical section -------------------- */
   EnterCS();
 
+  /* ??? We can't wait for more than MAXIMUM_WAIT_OBJECTS due to a Win32
+     limitation */
+  if (plist_length < MAXIMUM_WAIT_OBJECTS)
   hl_len = plist_length;
+  else
+    {
+      errno = EINVAL;
+      return -1;
+    }
 
 #ifdef CERT
   hl = (HANDLE *) xmalloc (sizeof (HANDLE) * hl_len);
@@ -2586,6 +2595,13 @@ win32_wait (int *status)
 
   res = WaitForMultipleObjects (hl_len, hl, FALSE, INFINITE);
 
+  /* If there was an error, exit now */
+  if (res == WAIT_FAILED)
+    {
+      errno = EINVAL;
+      return -1;
+    }
+
   /* if the ProcListEvt has been signaled then the list of processes has been
      updated to add or remove a handle, just loop over */
 
@@ -2596,9 +2612,17 @@ win32_wait (int *status)
       goto START_WAIT;
     }
 
-  h = hl[res - WAIT_OBJECT_0];
+  /* Handle two distinct groups of return codes: finished waits and abandoned
+     waits */
+
+  if (res < WAIT_ABANDONED_0)
+    pos = res - WAIT_OBJECT_0;
+  else
+    pos = res - WAIT_ABANDONED_0;
+
+  h = hl[pos];
   GetExitCodeProcess (h, &exitcode);
-  pid = pidl [res - WAIT_OBJECT_0];
+  pid = pidl [pos];
 
   found = __gnat_win32_remove_handle (h, -1);
 

@@ -1,6 +1,6 @@
 ; Options for the RISC-V port of the compiler
 ;
-; Copyright (C) 2011-2017 Free Software Foundation, Inc.
+; Copyright (C) 2011-2018 Free Software Foundation, Inc.
 ;
 ; This file is part of GCC.
 ;
@@ -83,6 +83,10 @@ Use smaller but slower prologue and epilogue code.
 mcmodel=
 Target Report RejectNegative Joined Enum(code_model) Var(riscv_cmodel) Init(TARGET_DEFAULT_CMODEL)
 Specify the code model.
+
+mstrict-align
+Target Report Mask(STRICT_ALIGN) Save
+Do not generate unaligned memory accesses.
 
 Enum
 Name(code_model) Type(enum riscv_code_model)

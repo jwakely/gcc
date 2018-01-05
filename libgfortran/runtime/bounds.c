@@ -1,4 +1,4 @@
-/* Copyright (C) 2009-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2009-2018 Free Software Foundation, Inc.
    Contributed by Thomas Koenig
 
 This file is part of the GNU Fortran runtime library (libgfortran).
@@ -40,9 +40,8 @@ bounds_iforeach_return (array_t *retarray, array_t *array, const char *name)
 
   ret_rank = GFC_DESCRIPTOR_RANK (retarray);
 
-  if (ret_rank != 1)
-    runtime_error ("Incorrect rank of return array in %s intrinsic:"
-		   "is %ld, should be 1", name, (long int) ret_rank);
+  /* ret_rank should always be 1, otherwise there is an internal error */
+  GFC_ASSERT(ret_rank == 1);
 
   rank = GFC_DESCRIPTOR_RANK (array);
   ret_extent = GFC_DESCRIPTOR_EXTENT(retarray,0);

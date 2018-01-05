@@ -1,5 +1,5 @@
 // go-gcc.cc -- Go frontend to gcc IR.
-// Copyright (C) 2011-2017 Free Software Foundation, Inc.
+// Copyright (C) 2011-2018 Free Software Foundation, Inc.
 // Contributed by Ian Lance Taylor, Google.
 
 // This file is part of GCC.
@@ -276,7 +276,7 @@ class Gcc_backend : public Backend
   { return this->make_expression(null_pointer_node); }
 
   Bexpression*
-  var_expression(Bvariable* var, Varexpr_context, Location);
+  var_expression(Bvariable* var, Location);
 
   Bexpression*
   indirect_expression(Btype*, Bexpression* expr, bool known_valid, Location);
@@ -348,7 +348,8 @@ class Gcc_backend : public Backend
   array_index_expression(Bexpression* array, Bexpression* index, Location);
 
   Bexpression*
-  call_expression(Bexpression* fn, const std::vector<Bexpression*>& args,
+  call_expression(Bfunction* caller, Bexpression* fn,
+                  const std::vector<Bexpression*>& args,
                   Bexpression* static_chain, Location);
 
   Bexpression*
@@ -485,7 +486,8 @@ class Gcc_backend : public Backend
   Bfunction*
   function(Btype* fntype, const std::string& name, const std::string& asm_name,
            bool is_visible, bool is_declaration, bool is_inlinable,
-           bool disable_split_stack, bool in_unique_section, Location);
+           bool disable_split_stack, bool does_not_return,
+	   bool in_unique_section, Location);
 
   Bstatement*
   function_defer_statement(Bfunction* function, Bexpression* undefer,
@@ -505,6 +507,10 @@ class Gcc_backend : public Backend
                            const std::vector<Bexpression*>&,
                            const std::vector<Bfunction*>&,
                            const std::vector<Bvariable*>&);
+
+  void
+  write_export_data(const char* bytes, unsigned int size);
+
 
  private:
   // Make a Bexpression from a tree.
@@ -748,6 +754,19 @@ Gcc_backend::Gcc_backend()
   this->define_builtin(BUILT_IN_TRAP, "__builtin_trap", NULL,
 		       build_function_type(void_type_node, void_list_node),
 		       false, true);
+
+  // The runtime uses __builtin_prefetch.
+  this->define_builtin(BUILT_IN_PREFETCH, "__builtin_prefetch", NULL,
+		       build_varargs_function_type_list(void_type_node,
+							const_ptr_type_node,
+							NULL_TREE),
+		       false, false);
+
+  // The compiler uses __builtin_unreachable for cases that can not
+  // occur.
+  this->define_builtin(BUILT_IN_UNREACHABLE, "__builtin_unreachable", NULL,
+		       build_function_type(void_type_node, void_list_node),
+		       true, true);
 }
 
 // Get an unnamed integer type.
@@ -1244,7 +1263,7 @@ Gcc_backend::zero_expression(Btype* btype)
 // An expression that references a variable.
 
 Bexpression*
-Gcc_backend::var_expression(Bvariable* var, Varexpr_context, Location location)
+Gcc_backend::var_expression(Bvariable* var, Location location)
 {
   tree ret = var->get_tree(location);
   if (ret == error_mark_node)
@@ -1881,9 +1900,11 @@ Gcc_backend::array_index_expression(Bexpression* array, Bexpression* index,
 
 // Create an expression for a call to FN_EXPR with FN_ARGS.
 Bexpression*
-Gcc_backend::call_expression(Bexpression* fn_expr,
+Gcc_backend::call_expression(Bfunction*, // containing fcn for call
+                             Bexpression* fn_expr,
                              const std::vector<Bexpression*>& fn_args,
-                             Bexpression* chain_expr, Location location)
+                             Bexpression* chain_expr,
+                             Location location)
 {
   tree fn = fn_expr->get_tree();
   if (fn == error_mark_node || TREE_TYPE(fn) == error_mark_node)
@@ -2275,8 +2296,8 @@ Gcc_backend::switch_statement(
   tree tv = value->get_tree();
   if (tv == error_mark_node)
     return this->error_statement();
-  tree t = build3_loc(switch_location.gcc_location(), SWITCH_EXPR,
-                      NULL_TREE, tv, stmt_list, NULL_TREE);
+  tree t = build2_loc(switch_location.gcc_location(), SWITCH_EXPR,
+                      NULL_TREE, tv, stmt_list);
   return this->make_statement(t);
 }
 
@@ -2811,9 +2832,9 @@ Gcc_backend::implicit_variable_reference(const std::string& name,
 
   tree decl = build_decl(BUILTINS_LOCATION, VAR_DECL,
                          get_identifier_from_string(name), type_tree);
-  DECL_EXTERNAL(decl) = 0;
+  DECL_EXTERNAL(decl) = 1;
   TREE_PUBLIC(decl) = 1;
-  TREE_STATIC(decl) = 1;
+  TREE_STATIC(decl) = 0;
   DECL_ARTIFICIAL(decl) = 1;
   if (! asm_name.empty())
     SET_DECL_ASSEMBLER_NAME(decl, get_identifier_from_string(asm_name));
@@ -2998,8 +3019,8 @@ Bfunction*
 Gcc_backend::function(Btype* fntype, const std::string& name,
                       const std::string& asm_name, bool is_visible,
                       bool is_declaration, bool is_inlinable,
-                      bool disable_split_stack, bool in_unique_section,
-                      Location location)
+                      bool disable_split_stack, bool does_not_return,
+		      bool in_unique_section, Location location)
 {
   tree functype = fntype->get_tree();
   if (functype != error_mark_node)
@@ -3032,9 +3053,11 @@ Gcc_backend::function(Btype* fntype, const std::string& name,
     DECL_UNINLINABLE(decl) = 1;
   if (disable_split_stack)
     {
-      tree attr = get_identifier("__no_split_stack__");
+      tree attr = get_identifier ("no_split_stack");
       DECL_ATTRIBUTES(decl) = tree_cons(attr, NULL_TREE, NULL_TREE);
     }
+  if (does_not_return)
+    TREE_THIS_VOLATILE(decl) = 1;
   if (in_unique_section)
     resolve_unique_section(decl, 0, 1);
 
@@ -3211,6 +3234,13 @@ Gcc_backend::write_global_definitions(
 
   delete[] defs;
 }
+
+void
+Gcc_backend::write_export_data(const char* bytes, unsigned int size)
+{
+  go_write_export_data(bytes, size);
+}
+
 
 // Define a builtin function.  BCODE is the builtin function code
 // defined by builtins.def.  NAME is the name of the builtin function.

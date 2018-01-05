@@ -1,5 +1,5 @@
 /* Common declarations for all of libgfortran.
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2018 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>, and
    Andy Vaught <andy@xena.eas.asu.edu>
 
@@ -255,7 +255,7 @@ typedef GFC_INTEGER_4 GFC_IO_INT;
 typedef ptrdiff_t index_type;
 
 /* The type used for the lengths of character variables.  */
-typedef GFC_INTEGER_4 gfc_charlen_type;
+typedef size_t gfc_charlen_type;
 
 /* Definitions of CHARACTER data types:
      - CHARACTER(KIND=1) corresponds to the C char type,
@@ -266,12 +266,8 @@ typedef GFC_UINTEGER_4 gfc_char4_t;
    simply equal to the kind parameter itself.  */
 #define GFC_SIZE_OF_CHAR_KIND(kind) (kind)
 
-/* This will be 0 on little-endian machines and one on big-endian machines.  */
-extern int big_endian;
-internal_proto(big_endian);
-
 #define GFOR_POINTER_TO_L1(p, kind) \
-  (big_endian * (kind - 1) + (GFC_LOGICAL_1 *)(p))
+  ((__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__ ? 1: 0) * (kind - 1) + (GFC_LOGICAL_1 *)(p))
 
 #define GFC_INTEGER_1_HUGE \
   (GFC_INTEGER_1)((((GFC_UINTEGER_1)1) << 7) - 1)
@@ -339,6 +335,7 @@ struct {\
   type *base_addr;\
   size_t offset;\
   index_type dtype;\
+  index_type span;\
   descriptor_dimension dim[r];\
 }
 
@@ -375,7 +372,8 @@ typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_8) gfc_array_l8;
 #ifdef HAVE_GFC_LOGICAL_16
 typedef GFC_ARRAY_DESCRIPTOR (GFC_MAX_DIMENSIONS, GFC_LOGICAL_16) gfc_array_l16;
 #endif
-
+typedef gfc_array_i1 gfc_array_s1;
+typedef gfc_array_i4 gfc_array_s4;
 
 #define GFC_DESCRIPTOR_RANK(desc) ((desc)->dtype & GFC_DTYPE_RANK_MASK)
 #define GFC_DESCRIPTOR_TYPE(desc) (((desc)->dtype & GFC_DTYPE_TYPE_MASK) \
@@ -513,7 +511,7 @@ typedef struct
   int separator_len;
   const char *separator;
 
-  int all_unbuffered, unbuffered_preconnected, default_recl;
+  int all_unbuffered, unbuffered_preconnected;
   int fpe, backtrace;
 }
 options_t;
@@ -577,12 +575,6 @@ iexport_data_proto(line);
 
 extern char *filename;
 iexport_data_proto(filename);
-
-
-/* The default value of record length for preconnected units is defined
-   here. This value can be overriden by an environment variable.
-   Default value is 1 Gb.  */
-#define DEFAULT_RECL 1073741824
 
 
 #define CHARACTER2(name) \
@@ -808,9 +800,7 @@ internal_proto(get_unformatted_convert);
 
 /* Secure getenv() which returns NULL if running as SUID/SGID.  */
 #ifndef HAVE_SECURE_GETENV
-#ifdef HAVE___SECURE_GETENV
-#define secure_getenv __secure_getenv
-#elif defined(HAVE_GETUID) && defined(HAVE_GETEUID) \
+#if defined(HAVE_GETUID) && defined(HAVE_GETEUID) \
   && defined(HAVE_GETGID) && defined(HAVE_GETEGID)
 #define FALLBACK_SECURE_GETENV
 extern char *secure_getenv (const char *);
@@ -1419,5 +1409,318 @@ internal_proto(cshift0_c10);
 void cshift0_c16 (gfc_array_c16 *, const gfc_array_c16 *, ptrdiff_t, int);
 internal_proto(cshift0_c16);
 #endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_INTEGER_1)
+void cshift1_4_i1 (gfc_array_i1 * const restrict,
+	const gfc_array_i1 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_i1);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_INTEGER_2)
+void cshift1_4_i2 (gfc_array_i2 * const restrict,
+	const gfc_array_i2 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_i2);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_INTEGER_4)
+void cshift1_4_i4 (gfc_array_i4 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_i4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_INTEGER_8)
+void cshift1_4_i8 (gfc_array_i8 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_i8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_INTEGER_16)
+void cshift1_4_i16 (gfc_array_i16 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_i16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_INTEGER_1)
+void cshift1_8_i1 (gfc_array_i1 * const restrict,
+	const gfc_array_i1 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_i1);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_INTEGER_2)
+void cshift1_8_i2 (gfc_array_i2 * const restrict,
+	const gfc_array_i2 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_i2);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_INTEGER_4)
+void cshift1_8_i4 (gfc_array_i4 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_i4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_INTEGER_8)
+void cshift1_8_i8 (gfc_array_i8 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_i8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_INTEGER_16)
+void cshift1_8_i16 (gfc_array_i16 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_i16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_INTEGER_1)
+void cshift1_16_i1 (gfc_array_i1 * const restrict,
+	const gfc_array_i1 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_i1);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_INTEGER_2)
+void cshift1_16_i2 (gfc_array_i2 * const restrict,
+	const gfc_array_i2 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_i2);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_INTEGER_4)
+void cshift1_16_i4 (gfc_array_i4 * const restrict,
+	const gfc_array_i4 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_i4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_INTEGER_8)
+void cshift1_16_i8 (gfc_array_i8 * const restrict,
+	const gfc_array_i8 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_i8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_INTEGER_16)
+void cshift1_16_i16 (gfc_array_i16 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const gfc_array_i16 * const restrict,
+	const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_i16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_REAL_4)
+void cshift1_4_r4 (gfc_array_r4 * const restrict,
+        const gfc_array_r4 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_r4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_REAL_8)
+void cshift1_4_r8 (gfc_array_r8 * const restrict,
+        const gfc_array_r8 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_r8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_REAL_10)
+void cshift1_4_r10 (gfc_array_r10 * const restrict,
+        const gfc_array_r10 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_r10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_REAL_16)
+void cshift1_4_r16 (gfc_array_r16 * const restrict,
+        const gfc_array_r16 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_r16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_REAL_4)
+void cshift1_8_r4 (gfc_array_r4 * const restrict,
+        const gfc_array_r4 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_r4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_REAL_8)
+void cshift1_8_r8 (gfc_array_r8 * const restrict,
+        const gfc_array_r8 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_r8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_REAL_10)
+void cshift1_8_r10 (gfc_array_r10 * const restrict,
+        const gfc_array_r10 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_r10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_REAL_16)
+void cshift1_8_r16 (gfc_array_r16 * const restrict,
+        const gfc_array_r16 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_r16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_REAL_4)
+void cshift1_16_r4 (gfc_array_r4 * const restrict,
+        const gfc_array_r4 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_r4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_REAL_8)
+void cshift1_16_r8 (gfc_array_r8 * const restrict,
+        const gfc_array_r8 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_r8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_REAL_10)
+void cshift1_16_r10 (gfc_array_r10 * const restrict,
+        const gfc_array_r10 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_r10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_REAL_16)
+void cshift1_16_r16 (gfc_array_r16 * const restrict,
+        const gfc_array_r16 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_r16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_COMPLEX_4)
+void cshift1_4_c4 (gfc_array_c4 * const restrict,
+        const gfc_array_c4 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_c4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_COMPLEX_8)
+void cshift1_4_c8 (gfc_array_c8 * const restrict,
+        const gfc_array_c8 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_c8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_COMPLEX_10)
+void cshift1_4_c10 (gfc_array_c10 * const restrict,
+        const gfc_array_c10 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_c10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_4) && defined (HAVE_GFC_COMPLEX_16)
+void cshift1_4_c16 (gfc_array_c16 * const restrict,
+        const gfc_array_c16 * const restrict,
+        const gfc_array_i4 * const restrict,
+        const GFC_INTEGER_4 * const restrict);
+internal_proto(cshift1_4_c16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_COMPLEX_4)
+void cshift1_8_c4 (gfc_array_c4 * const restrict,
+        const gfc_array_c4 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_c4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_COMPLEX_8)
+void cshift1_8_c8 (gfc_array_c8 * const restrict,
+        const gfc_array_c8 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_c8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_COMPLEX_10)
+void cshift1_8_c10 (gfc_array_c10 * const restrict,
+        const gfc_array_c10 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_c10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_8) && defined (HAVE_GFC_COMPLEX_16)
+void cshift1_8_c16 (gfc_array_c16 * const restrict,
+        const gfc_array_c16 * const restrict,
+        const gfc_array_i8 * const restrict,
+        const GFC_INTEGER_8 * const restrict);
+internal_proto(cshift1_8_c16);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_COMPLEX_4)
+void cshift1_16_c4 (gfc_array_c4 * const restrict,
+        const gfc_array_c4 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_c4);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_COMPLEX_8)
+void cshift1_16_c8 (gfc_array_c8 * const restrict,
+        const gfc_array_c8 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_c8);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_COMPLEX_10)
+void cshift1_16_c10 (gfc_array_c10 * const restrict,
+        const gfc_array_c10 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_c10);
+#endif
+
+#if defined (HAVE_GFC_INTEGER_16) && defined (HAVE_GFC_COMPLEX_16)
+void cshift1_16_c16 (gfc_array_c16 * const restrict,
+        const gfc_array_c16 * const restrict,
+        const gfc_array_i16 * const restrict,
+        const GFC_INTEGER_16 * const restrict);
+internal_proto(cshift1_16_c16);
+#endif
+
 
 #endif  /* LIBGFOR_H  */

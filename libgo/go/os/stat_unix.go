@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin dragonfly freebsd linux nacl netbsd openbsd solaris
+// +build aix darwin dragonfly freebsd linux nacl netbsd openbsd solaris
 
 package os
 
@@ -17,7 +17,7 @@ func (f *File) Stat() (FileInfo, error) {
 		return nil, ErrInvalid
 	}
 	var fs fileStat
-	err := syscall.Fstat(f.fd, &fs.sys)
+	err := f.pfd.Fstat(&fs.sys)
 	if err != nil {
 		return nil, &PathError{"stat", f.name, err}
 	}

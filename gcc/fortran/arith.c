@@ -1,5 +1,5 @@
 /* Compiler arithmetic
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2018 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -2001,13 +2001,14 @@ wprecision_real_real (mpfr_t r, int from_kind, int to_kind)
 static bool
 wprecision_int_real (mpz_t n, mpfr_t r)
 {
+  bool ret;
   mpz_t i;
   mpz_init (i);
   mpfr_get_z (i, r, GFC_RND_MODE);
   mpz_sub (i, i, n);
-  return mpz_cmp_si (i, 0) != 0;
+  ret = mpz_cmp_si (i, 0) != 0;
   mpz_clear (i);
-
+  return ret;
 }
 
 /* Convert integers to integers.  */
@@ -2513,6 +2514,18 @@ gfc_int2log (gfc_expr *src, int kind)
   return result;
 }
 
+/* Convert character to character. We only use wide strings internally,
+   so we only set the kind.  */
+
+gfc_expr *
+gfc_character2character (gfc_expr *src, int kind)
+{
+  gfc_expr *result;
+  result = gfc_copy_expr (src);
+  result->ts.kind = kind;
+
+  return result;
+}
 
 /* Helper function to set the representation in a Hollerith conversion.  
    This assumes that the ts.type and ts.kind of the result have already
@@ -2603,6 +2616,7 @@ gfc_hollerith2character (gfc_expr *src, int kind)
   result = gfc_copy_expr (src);
   result->ts.type = BT_CHARACTER;
   result->ts.kind = kind;
+  result->ts.u.pad = 0;
 
   result->value.character.length = result->representation.length;
   result->value.character.string

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin nacl netbsd openbsd plan9 solaris windows
+// +build aix darwin nacl netbsd openbsd plan9 solaris windows
 
 package runtime
 
@@ -175,7 +175,16 @@ func notesleep(n *note) {
 	}
 	// Queued. Sleep.
 	gp.m.blocked = true
-	semasleep(-1)
+	if *cgo_yield == nil {
+		semasleep(-1)
+	} else {
+		// Sleep for an arbitrary-but-moderate interval to poll libc interceptors.
+		const ns = 10e6
+		for atomic.Loaduintptr(&n.key) == 0 {
+			semasleep(ns)
+			asmcgocall(*cgo_yield, nil)
+		}
+	}
 	gp.m.blocked = false
 }
 
@@ -198,7 +207,15 @@ func notetsleep_internal(n *note, ns int64, gp *g, deadline int64) bool {
 	if ns < 0 {
 		// Queued. Sleep.
 		gp.m.blocked = true
-		semasleep(-1)
+		if *cgo_yield == nil {
+			semasleep(-1)
+		} else {
+			// Sleep in arbitrary-but-moderate intervals to poll libc interceptors.
+			const ns = 10e6
+			for semasleep(ns) < 0 {
+				asmcgocall(*cgo_yield, nil)
+			}
+		}
 		gp.m.blocked = false
 		return true
 	}
@@ -207,11 +224,17 @@ func notetsleep_internal(n *note, ns int64, gp *g, deadline int64) bool {
 	for {
 		// Registered. Sleep.
 		gp.m.blocked = true
+		if *cgo_yield != nil && ns > 10e6 {
+			ns = 10e6
+		}
 		if semasleep(ns) >= 0 {
 			gp.m.blocked = false
 			// Acquired semaphore, semawakeup unregistered us.
 			// Done.
 			return true
+		}
+		if *cgo_yield != nil {
+			asmcgocall(*cgo_yield, nil)
 		}
 		gp.m.blocked = false
 		// Interrupted or timed out. Still registered. Semaphore not acquired.
@@ -251,14 +274,9 @@ func notetsleep_internal(n *note, ns int64, gp *g, deadline int64) bool {
 
 func notetsleep(n *note, ns int64) bool {
 	gp := getg()
-
-	// Currently OK to sleep in non-g0 for gccgo.  It happens in
-	// stoptheworld because our version of systemstack does not
-	// change to g0.
-	// if gp != gp.m.g0 && gp.m.preemptoff != "" {
-	//	throw("notetsleep not on g0")
-	// }
-
+	if gp != gp.m.g0 && gp.m.preemptoff != "" {
+		throw("notetsleep not on g0")
+	}
 	semacreate(gp.m)
 	return notetsleep_internal(n, ns, nil, 0)
 }

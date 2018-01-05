@@ -1,4 +1,4 @@
-@c Copyright (C) 1999-2017 Free Software Foundation, Inc.
+@c Copyright (C) 1999-2018 Free Software Foundation, Inc.
 @c This is part of the CPP and GCC manuals.
 @c For copying conditions, see the file gcc.texi.
 
@@ -124,6 +124,8 @@ preprocessed output.
 
 When used with the driver options @option{-MD} or @option{-MMD},
 @option{-MF} overrides the default dependency output file.
+
+If @var{file} is @file{-}, then the dependencies are written to @file{stdout}.
 
 @item -MG
 @opindex MG

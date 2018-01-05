@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin dragonfly freebsd linux nacl netbsd openbsd solaris
+// +build aix darwin dragonfly freebsd linux nacl netbsd openbsd solaris
 
 package time
 
@@ -19,6 +19,7 @@ func interrupt() {
 // readFile reads and returns the content of the named file.
 // It is a trivial implementation of ioutil.ReadFile, reimplemented
 // here to avoid depending on io/ioutil or os.
+// It returns an error if name exceeds maxFileSize bytes.
 func readFile(name string) ([]byte, error) {
 	f, err := syscall.Open(name, syscall.O_RDONLY, 0)
 	if err != nil {
@@ -37,6 +38,9 @@ func readFile(name string) ([]byte, error) {
 		}
 		if n == 0 || err != nil {
 			break
+		}
+		if len(ret) > maxFileSize {
+			return nil, fileSizeError(name)
 		}
 	}
 	return ret, err

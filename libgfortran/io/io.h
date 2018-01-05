@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2018 Free Software Foundation, Inc.
    Contributed by Andy Vaught
    F2003 I/O support contributed by Jerry DeLisle
 
@@ -69,7 +69,7 @@ internal_proto(old_locale_lock);
 
 #define is_array_io(dtp) ((dtp)->internal_unit_desc)
 
-#define is_internal_unit(dtp) ((dtp)->u.p.current_unit->internal_unit_kind)
+#define is_internal_unit(dtp) ((dtp)->u.p.unit_is_internal)
 
 #define is_stream_io(dtp) ((dtp)->u.p.current_unit->flags.access == ACCESS_STREAM)
 
@@ -308,7 +308,7 @@ unit_sign_s;
 typedef struct
 {
   st_parameter_common common;
-  GFC_INTEGER_4 recl_in;
+  GFC_IO_INT recl_in;
   CHARACTER2 (file);
   CHARACTER1 (status);
   CHARACTER2 (access);
@@ -388,8 +388,7 @@ typedef struct
 {
   st_parameter_common common;
   GFC_INTEGER_4 *exist, *opened, *number, *named;
-  GFC_INTEGER_4 *nextrec, *recl_out;
-  GFC_IO_INT *strm_pos_out;
+  GFC_IO_INT *nextrec, *recl_out, *strm_pos_out;
   CHARACTER1 (file);
   CHARACTER2 (access);
   CHARACTER1 (form);
@@ -736,6 +735,11 @@ gfc_saved_unit;
 extern gfc_offset max_offset;
 internal_proto(max_offset);
 
+/* Default RECL for sequential access if not given in OPEN statement,
+   computed at library initialization time.  */
+extern gfc_offset default_recl;
+internal_proto(default_recl);
+
 /* Unit tree root.  */
 extern gfc_unit *unit_root;
 internal_proto(unit_root);
@@ -761,17 +765,20 @@ internal_proto(find_or_create_unit);
 extern gfc_unit *get_unit (st_parameter_dt *, int);
 internal_proto(get_unit);
 
-extern void unlock_unit (gfc_unit *);
+extern void unlock_unit(gfc_unit *);
 internal_proto(unlock_unit);
 
 extern void finish_last_advance_record (gfc_unit *u);
-internal_proto (finish_last_advance_record);
+internal_proto(finish_last_advance_record);
 
-extern int unit_truncate (gfc_unit *, gfc_offset, st_parameter_common *);
-internal_proto (unit_truncate);
+extern int unit_truncate(gfc_unit *, gfc_offset, st_parameter_common *);
+internal_proto(unit_truncate);
 
 extern int newunit_alloc (void);
 internal_proto(newunit_alloc);
+
+extern void newunit_free (int);
+internal_proto(newunit_free);
 
 
 /* open.c */

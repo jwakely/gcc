@@ -117,7 +117,7 @@ class Import_init
 // For sorting purposes.
 
 struct Import_init_lt {
-  bool operator()(const Import_init* i1, const Import_init* i2)
+  bool operator()(const Import_init* i1, const Import_init* i2) const
   {
     return i1->init_name() < i2->init_name();
   }
@@ -318,6 +318,20 @@ class Gogo
   set_debug_escape_level(int level)
   { this->debug_escape_level_ = level; }
 
+  // Return the size threshold used to determine whether to issue
+  // a nil-check for a given pointer dereference. A threshold of -1
+  // implies that all potentially faulting dereference ops should
+  // be nil-checked. A positive threshold of N implies that a deref
+  // of *P where P has size less than N doesn't need a nil check.
+  int64_t
+  nil_check_size_threshold() const
+  { return this->nil_check_size_threshold_; }
+
+  // Set the nil-check size threshold, as described above.
+  void
+  set_nil_check_size_threshold(int64_t bytes)
+  { this->nil_check_size_threshold_ = bytes; }
+
   // Import a package.  FILENAME is the file name argument, LOCAL_NAME
   // is the local name to give to the package.  If LOCAL_NAME is empty
   // the declarations are added to the global scope.
@@ -361,6 +375,10 @@ class Gogo
   Package*
   register_package(const std::string& pkgpath,
 		   const std::string& pkgpath_symbol, Location);
+
+  // Look up a package by pkgpath, and return its pkgpath_symbol.
+  std::string
+  pkgpath_symbol_for_package(const std::string&);
 
   // Start compiling a function.  ADD_METHOD_TO_TYPE is true if a
   // method function should be added to the type of its receiver.
@@ -502,26 +520,6 @@ class Gogo
   void
   mark_locals_used();
 
-  // Return a name to use for an error case.  This should only be used
-  // after reporting an error, and is used to avoid useless knockon
-  // errors.
-  static std::string
-  erroneous_name();
-
-  // Return whether the name indicates an error.
-  static bool
-  is_erroneous_name(const std::string&);
-
-  // Return a name to use for a thunk function.  A thunk function is
-  // one we create during the compilation, for a go statement or a
-  // defer statement or a method expression.
-  static std::string
-  thunk_name();
-
-  // Return whether an object is a thunk.
-  static bool
-  is_thunk(const Named_object*);
-
   // Note that we've seen an interface type.  This is used to build
   // all required interface method tables.
   void
@@ -585,7 +583,10 @@ class Gogo
   // variable initializers that would otherwise not be seen.
   void
   add_gc_root(Expression* expr)
-  { this->gc_roots_.push_back(expr); }
+  {
+    this->set_need_init_fn();
+    this->gc_roots_.push_back(expr);
+  }
 
   // Traverse the tree.  See the Traverse class.
   void
@@ -693,6 +694,23 @@ class Gogo
   void
   order_evaluations();
 
+  // Add write barriers as needed.
+  void
+  add_write_barriers();
+
+  // Return whether an assignment that sets LHS to RHS needs a write
+  // barrier.
+  bool
+  assign_needs_write_barrier(Expression* lhs);
+
+  // Return an assignment that sets LHS to RHS using a write barrier.
+  // This returns an if statement that checks whether write barriers
+  // are enabled.  If not, it does LHS = RHS, otherwise it calls the
+  // appropriate write barrier function.
+  Statement*
+  assign_with_write_barrier(Function*, Block*, Statement_inserter*,
+			    Expression* lhs, Expression* rhs, Location);
+
   // Flatten parse tree.
   void
   flatten();
@@ -737,6 +755,10 @@ class Gogo
   named_types_are_converted() const
   { return this->named_types_are_converted_; }
 
+  // Give an error if the initialization of VAR depends on itself.
+  void
+  check_self_dep(Named_object*);
+
   // Write out the global values.
   void
   write_globals();
@@ -753,9 +775,103 @@ class Gogo
   Expression*
   allocate_memory(Type *type, Location);
 
+  // Return the assembler name to use for an exported function, a
+  // method, or a function/method declaration.
+  std::string
+  function_asm_name(const std::string& go_name, const Package*,
+		    const Type* receiver);
+
+  // Return the name to use for a function descriptor.
+  std::string
+  function_descriptor_name(Named_object*);
+
+  // Return the name to use for a generated stub method.
+  std::string
+  stub_method_name(const std::string& method_name);
+
+  // Return the names of the hash and equality functions for TYPE.
+  void
+  specific_type_function_names(const Type*, const Named_type*,
+			       std::string* hash_name,
+			       std::string* equal_name);
+
+  // Return the assembler name to use for a global variable.
+  std::string
+  global_var_asm_name(const std::string& go_name, const Package*);
+
+  // Return a name to use for an error case.  This should only be used
+  // after reporting an error, and is used to avoid useless knockon
+  // errors.
+  static std::string
+  erroneous_name();
+
+  // Return whether the name indicates an error.
+  static bool
+  is_erroneous_name(const std::string&);
+
+  // Return a name to use for a thunk function.  A thunk function is
+  // one we create during the compilation, for a go statement or a
+  // defer statement or a method expression.
+  static std::string
+  thunk_name();
+
+  // Return whether an object is a thunk.
+  static bool
+  is_thunk(const Named_object*);
+
+  // Return the name to use for an init function.
+  std::string
+  init_function_name();
+
+  // Return the name to use for a nested function.
+  static std::string
+  nested_function_name();
+
+  // Return the name to use for a sink funciton.
+  std::string
+  sink_function_name();
+
+  // Return the name to use for an (erroneous) redefined function.
+  std::string
+  redefined_function_name();
+
+  // Return the name for use for a recover thunk.
+  std::string
+  recover_thunk_name(const std::string& name, const Type* rtype);
+
+  // Return the name to use for the GC root variable.
+  std::string
+  gc_root_name();
+
+  // Return the name to use for a composite literal or string
+  // initializer.
+  std::string
+  initializer_name();
+
+  // Return the name of the variable used to represent the zero value
+  // of a map.
+  std::string
+  map_zero_value_name();
+
   // Get the name of the magic initialization function.
   const std::string&
   get_init_fn_name();
+
+  // Return the name for a type descriptor symbol.
+  std::string
+  type_descriptor_name(Type*, Named_type*);
+
+  // Return the assembler name for the GC symbol for a type.
+  std::string
+  gc_symbol_name(Type*);
+
+  // Return the assembler name for a ptrmask variable.
+  std::string
+  ptrmask_symbol_name(const std::string& ptrmask_sym_name);
+
+  // Return the name to use for an interface method table.
+  std::string
+  interface_method_table_name(Interface_type*, Type*, bool is_pointer);
 
  private:
   // During parsing, we keep a stack of functions.  Each function on
@@ -804,6 +920,12 @@ class Gogo
   register_gc_vars(const std::vector<Named_object*>&,
                    std::vector<Bstatement*>&,
                    Bfunction* init_bfunction);
+
+  Named_object*
+  write_barrier_variable();
+
+  Statement*
+  check_write_barrier(Block*, Statement*, Statement*);
 
   // Type used to map import names to packages.
   typedef std::map<std::string, Package*> Imports;
@@ -913,6 +1035,8 @@ class Gogo
   // The level of escape analysis debug information to emit, from the
   // -fgo-debug-escape option.
   int debug_escape_level_;
+  // Nil-check size threshhold.
+  int64_t nil_check_size_threshold_;
   // A list of types to verify.
   std::vector<Type*> verify_types_;
   // A list of interface types defined while parsing.
@@ -1095,6 +1219,11 @@ class Function
   void
   set_asm_name(const std::string& asm_name)
   { this->asm_name_ = asm_name; }
+
+  // Return the pragmas for this function.
+  unsigned int
+  pragmas() const
+  { return this->pragmas_; }
 
   // Set the pragmas for this function.
   void
@@ -1448,6 +1577,11 @@ class Function_declaration
   set_asm_name(const std::string& asm_name)
   { this->asm_name_ = asm_name; }
 
+  // Return the pragmas for this function.
+  unsigned int
+  pragmas() const
+  { return this->pragmas_; }
+
   // Set the pragmas for this function.
   void
   set_pragmas(unsigned int pragmas)
@@ -1648,7 +1782,7 @@ class Variable
   set_is_used()
   { this->is_used_ = true; }
 
-  // Clear the initial value; used for error handling.
+  // Clear the initial value; used for error handling and write barriers.
   void
   clear_init()
   { this->init_ = NULL; }
@@ -2078,6 +2212,11 @@ class Type_declaration
   Named_object*
   add_method_declaration(const std::string& name, Package*,
 			 Function_type* type, Location location);
+
+  // Add an already created object as a method.
+  void
+  add_existing_method(Named_object* no)
+  { this->methods_.push_back(no); }
 
   // Return whether any methods were defined.
   bool
@@ -3334,6 +3473,9 @@ static const int RUNTIME_ERROR_MAKE_CHAN_OUT_OF_BOUNDS = 9;
 
 // Division by zero.
 static const int RUNTIME_ERROR_DIVISION_BY_ZERO = 10;
+
+// Go statement with nil function.
+static const int RUNTIME_ERROR_GO_NIL = 11;
 
 // This is used by some of the langhooks.
 extern Gogo* go_get_gogo();

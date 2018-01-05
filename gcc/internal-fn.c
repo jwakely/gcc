@@ -1,5 +1,5 @@
 /* Internal functions.
-   Copyright (C) 2011-2017 Free Software Foundation, Inc.
+   Copyright (C) 2011-2018 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -39,10 +39,16 @@ along with GCC; see the file COPYING3.  If not see
 #include "stor-layout.h"
 #include "dojump.h"
 #include "expr.h"
+#include "stringpool.h"
+#include "attribs.h"
+#include "asan.h"
 #include "ubsan.h"
 #include "recog.h"
 #include "builtins.h"
 #include "optabs-tree.h"
+#include "gimple-ssa.h"
+#include "tree-phinodes.h"
+#include "ssa-iterators.h"
 
 /* The names of each internal function, indexed by function number.  */
 const char *const internal_fn_name_array[] = {
@@ -84,6 +90,8 @@ init_internal_fns ()
 const direct_internal_fn_info direct_internal_fn_array[IFN_LAST + 1] = {
 #define DEF_INTERNAL_FN(CODE, FLAGS, FNSPEC) not_direct,
 #define DEF_INTERNAL_OPTAB_FN(CODE, FLAGS, OPTAB, TYPE) TYPE##_direct,
+#define DEF_INTERNAL_SIGNED_OPTAB_FN(CODE, FLAGS, SELECTOR, SIGNED_OPTAB, \
+				     UNSIGNED_OPTAB, TYPE) TYPE##_direct,
 #include "internal-fn.def"
   not_direct
 };
@@ -401,6 +409,14 @@ expand_UBSAN_VPTR (internal_fn, gcall *)
 /* This should get expanded in the sanopt pass.  */
 
 static void
+expand_UBSAN_PTR (internal_fn, gcall *)
+{
+  gcc_unreachable ();
+}
+
+/* This should get expanded in the sanopt pass.  */
+
+static void
 expand_UBSAN_OBJECT_SIZE (internal_fn, gcall *)
 {
   gcc_unreachable ();
@@ -474,7 +490,7 @@ get_min_precision (tree arg, signop sign)
 	  p = wi::min_precision (w, sign);
 	}
       else
-	p = wi::min_precision (arg, sign);
+	p = wi::min_precision (wi::to_wide (arg), sign);
       return MIN (p, prec);
     }
   while (CONVERT_EXPR_P (arg)
@@ -557,9 +573,10 @@ expand_arith_set_overflow (tree lhs, rtx target)
 
 static void
 expand_arith_overflow_result_store (tree lhs, rtx target,
-				    machine_mode mode, rtx res)
+				    scalar_int_mode mode, rtx res)
 {
-  machine_mode tgtmode = GET_MODE_INNER (GET_MODE (target));
+  scalar_int_mode tgtmode
+    = as_a <scalar_int_mode> (GET_MODE_INNER (GET_MODE (target)));
   rtx lres = res;
   if (tgtmode != mode)
     {
@@ -569,7 +586,7 @@ expand_arith_overflow_result_store (tree lhs, rtx target,
       gcc_assert (GET_MODE_PRECISION (tgtmode) < GET_MODE_PRECISION (mode));
       do_compare_rtx_and_jump (res, convert_modes (mode, tgtmode, lres, uns),
 			       EQ, true, mode, NULL_RTX, NULL, done_label,
-			       PROB_VERY_LIKELY);
+			       profile_probability::very_likely ());
       expand_arith_set_overflow (lhs, target);
       emit_label (done_label);
     }
@@ -597,7 +614,7 @@ expand_arith_overflow_result_store (tree lhs, rtx target,
 	}
       do_compare_rtx_and_jump (res, lres,
 			       EQ, true, tgtmode, NULL_RTX, NULL, done_label,
-			       PROB_VERY_LIKELY);
+			       profile_probability::very_likely ());
       expand_arith_set_overflow (lhs, target);
       emit_label (done_label);
     }
@@ -634,7 +651,7 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
   do_pending_stack_adjust ();
   rtx op0 = expand_normal (arg0);
   rtx op1 = expand_normal (arg1);
-  machine_mode mode = TYPE_MODE (TREE_TYPE (arg0));
+  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (TREE_TYPE (arg0));
   int prec = GET_MODE_PRECISION (mode);
   rtx sgn = immed_wide_int_const (wi::min_value (prec, SIGNED), mode);
   bool do_xor = false;
@@ -740,7 +757,8 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
 		  && JUMP_P (last)
 		  && any_condjump_p (last)
 		  && !find_reg_note (last, REG_BR_PROB, 0))
-		add_int_reg_note (last, REG_BR_PROB, PROB_VERY_UNLIKELY);
+		add_reg_br_prob_note (last,
+				      profile_probability::very_unlikely ());
 	      emit_jump (done_label);
 	      goto do_error_label;
 	    }
@@ -767,7 +785,7 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
 	tem = op1;
       do_compare_rtx_and_jump (res, tem, code == PLUS_EXPR ? GEU : LEU,
 			       true, mode, NULL_RTX, NULL, done_label,
-			       PROB_VERY_LIKELY);
+			       profile_probability::very_likely ());
       goto do_error_label;
     }
 
@@ -782,7 +800,7 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
 			      code == PLUS_EXPR ? res : op0, sgn,
 			      NULL_RTX, false, OPTAB_LIB_WIDEN);
       do_compare_rtx_and_jump (tem, op1, GEU, true, mode, NULL_RTX, NULL,
-			       done_label, PROB_VERY_LIKELY);
+			       done_label, profile_probability::very_likely ());
       goto do_error_label;
     }
 
@@ -824,9 +842,9 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
       else if (pos_neg == 3)
 	/* If ARG0 is not known to be always positive, check at runtime.  */
 	do_compare_rtx_and_jump (op0, const0_rtx, LT, false, mode, NULL_RTX,
-				 NULL, do_error, PROB_VERY_UNLIKELY);
+				 NULL, do_error, profile_probability::very_unlikely ());
       do_compare_rtx_and_jump (op1, op0, LEU, true, mode, NULL_RTX, NULL,
-			       done_label, PROB_VERY_LIKELY);
+			       done_label, profile_probability::very_likely ());
       goto do_error_label;
     }
 
@@ -840,7 +858,7 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
       rtx tem = expand_binop (mode, add_optab, op1, sgn, NULL_RTX, false,
 			      OPTAB_LIB_WIDEN);
       do_compare_rtx_and_jump (op0, tem, LTU, true, mode, NULL_RTX, NULL,
-			       done_label, PROB_VERY_LIKELY);
+			       done_label, profile_probability::very_likely ());
       goto do_error_label;
     }
 
@@ -852,7 +870,7 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
       res = expand_binop (mode, add_optab, op0, op1, NULL_RTX, false,
 			  OPTAB_LIB_WIDEN);
       do_compare_rtx_and_jump (res, const0_rtx, LT, false, mode, NULL_RTX,
-			       NULL, do_error, PROB_VERY_UNLIKELY);
+			       NULL, do_error, profile_probability::very_unlikely ());
       rtx tem = op1;
       /* The operation is commutative, so we can pick operand to compare
 	 against.  For prec <= BITS_PER_WORD, I think preferring REG operand
@@ -866,7 +884,7 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
 	  : CONST_SCALAR_INT_P (op0))
 	tem = op0;
       do_compare_rtx_and_jump (res, tem, GEU, true, mode, NULL_RTX, NULL,
-			       done_label, PROB_VERY_LIKELY);
+			       done_label, profile_probability::very_likely ());
       goto do_error_label;
     }
 
@@ -894,7 +912,7 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
 				    ? and_optab : ior_optab,
 			      op0, res, NULL_RTX, false, OPTAB_LIB_WIDEN);
 	  do_compare_rtx_and_jump (tem, const0_rtx, GE, false, mode, NULL,
-				   NULL, done_label, PROB_VERY_LIKELY);
+				   NULL, done_label, profile_probability::very_likely ());
 	}
       else
 	{
@@ -902,17 +920,17 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
 	  do_compare_rtx_and_jump (op1, const0_rtx,
 				   code == MINUS_EXPR ? GE : LT, false, mode,
 				   NULL_RTX, NULL, do_ior_label,
-				   PROB_EVEN);
+				   profile_probability::even ());
 	  tem = expand_binop (mode, and_optab, op0, res, NULL_RTX, false,
 			      OPTAB_LIB_WIDEN);
 	  do_compare_rtx_and_jump (tem, const0_rtx, GE, false, mode, NULL_RTX,
-				   NULL, done_label, PROB_VERY_LIKELY);
+				   NULL, done_label, profile_probability::very_likely ());
 	  emit_jump (do_error);
 	  emit_label (do_ior_label);
 	  tem = expand_binop (mode, ior_optab, op0, res, NULL_RTX, false,
 			      OPTAB_LIB_WIDEN);
 	  do_compare_rtx_and_jump (tem, const0_rtx, GE, false, mode, NULL_RTX,
-				   NULL, done_label, PROB_VERY_LIKELY);
+				   NULL, done_label, profile_probability::very_likely ());
 	}
       goto do_error_label;
     }
@@ -926,13 +944,13 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
 			  OPTAB_LIB_WIDEN);
       rtx_code_label *op0_geu_op1 = gen_label_rtx ();
       do_compare_rtx_and_jump (op0, op1, GEU, true, mode, NULL_RTX, NULL,
-			       op0_geu_op1, PROB_EVEN);
+			       op0_geu_op1, profile_probability::even ());
       do_compare_rtx_and_jump (res, const0_rtx, LT, false, mode, NULL_RTX,
-			       NULL, done_label, PROB_VERY_LIKELY);
+			       NULL, done_label, profile_probability::very_likely ());
       emit_jump (do_error);
       emit_label (op0_geu_op1);
       do_compare_rtx_and_jump (res, const0_rtx, GE, false, mode, NULL_RTX,
-			       NULL, done_label, PROB_VERY_LIKELY);
+			       NULL, done_label, profile_probability::very_likely ());
       goto do_error_label;
     }
 
@@ -960,7 +978,8 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
 		&& JUMP_P (last)
 		&& any_condjump_p (last)
 		&& !find_reg_note (last, REG_BR_PROB, 0))
-	      add_int_reg_note (last, REG_BR_PROB, PROB_VERY_UNLIKELY);
+	      add_reg_br_prob_note (last, 
+				    profile_probability::very_unlikely ());
 	    emit_jump (done_label);
 	    goto do_error_label;
 	  }
@@ -1020,7 +1039,7 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
 
 	/* No overflow if the result has bit sign cleared.  */
 	do_compare_rtx_and_jump (tem, const0_rtx, GE, false, mode, NULL_RTX,
-				 NULL, done_label, PROB_VERY_LIKELY);
+				 NULL, done_label, profile_probability::very_likely ());
       }
 
     /* Compare the result of the operation with the first operand.
@@ -1031,7 +1050,7 @@ expand_addsub_overflow (location_t loc, tree_code code, tree lhs,
       do_compare_rtx_and_jump (res, op0,
 			       (pos_neg == 1) ^ (code == MINUS_EXPR) ? GE : LE,
 			       false, mode, NULL_RTX, NULL, done_label,
-			       PROB_VERY_LIKELY);
+			       profile_probability::very_likely ());
   }
 
  do_error_label:
@@ -1084,7 +1103,7 @@ expand_neg_overflow (location_t loc, tree lhs, tree arg1, bool is_ubsan,
   do_pending_stack_adjust ();
   op1 = expand_normal (arg1);
 
-  machine_mode mode = TYPE_MODE (TREE_TYPE (arg1));
+  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (TREE_TYPE (arg1));
   if (lhs)
     {
       target = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
@@ -1109,7 +1128,8 @@ expand_neg_overflow (location_t loc, tree lhs, tree arg1, bool is_ubsan,
 	      && JUMP_P (last)
 	      && any_condjump_p (last)
 	      && !find_reg_note (last, REG_BR_PROB, 0))
-	    add_int_reg_note (last, REG_BR_PROB, PROB_VERY_UNLIKELY);
+	    add_reg_br_prob_note (last, 
+				  profile_probability::very_unlikely ());
 	  emit_jump (done_label);
         }
       else
@@ -1128,7 +1148,7 @@ expand_neg_overflow (location_t loc, tree lhs, tree arg1, bool is_ubsan,
       /* Compare the operand with the most negative value.  */
       rtx minv = expand_normal (TYPE_MIN_VALUE (TREE_TYPE (arg1)));
       do_compare_rtx_and_jump (op1, minv, NE, true, mode, NULL_RTX, NULL,
-			       done_label, PROB_VERY_LIKELY);
+			       done_label, profile_probability::very_likely ());
     }
 
   emit_label (do_error);
@@ -1157,6 +1177,35 @@ expand_neg_overflow (location_t loc, tree lhs, tree arg1, bool is_ubsan,
     }
 }
 
+/* Return true if UNS WIDEN_MULT_EXPR with result mode WMODE and operand
+   mode MODE can be expanded without using a libcall.  */
+
+static bool
+can_widen_mult_without_libcall (scalar_int_mode wmode, scalar_int_mode mode,
+				rtx op0, rtx op1, bool uns)
+{
+  if (find_widening_optab_handler (umul_widen_optab, wmode, mode)
+      != CODE_FOR_nothing)
+    return true;
+    
+  if (find_widening_optab_handler (smul_widen_optab, wmode, mode)
+      != CODE_FOR_nothing)
+    return true;
+
+  rtx_insn *last = get_last_insn ();
+  if (CONSTANT_P (op0))
+    op0 = convert_modes (wmode, mode, op0, uns);
+  else
+    op0 = gen_raw_REG (wmode, LAST_VIRTUAL_REGISTER + 1);
+  if (CONSTANT_P (op1))
+    op1 = convert_modes (wmode, mode, op1, uns);
+  else
+    op1 = gen_raw_REG (wmode, LAST_VIRTUAL_REGISTER + 2);
+  rtx ret = expand_mult (wmode, op0, op1, NULL_RTX, uns, true);
+  delete_insns_since (last);
+  return ret != NULL_RTX;
+} 
+
 /* Add mul overflow checking to the statement STMT.  */
 
 static void
@@ -1178,7 +1227,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
   op0 = expand_normal (arg0);
   op1 = expand_normal (arg1);
 
-  machine_mode mode = TYPE_MODE (TREE_TYPE (arg0));
+  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (TREE_TYPE (arg0));
   bool uns = unsr_p;
   if (lhs)
     {
@@ -1261,15 +1310,15 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	  ops.location = loc;
 	  res = expand_expr_real_2 (&ops, NULL_RTX, mode, EXPAND_NORMAL);
 	  do_compare_rtx_and_jump (op1, const0_rtx, EQ, true, mode, NULL_RTX,
-				   NULL, done_label, PROB_VERY_LIKELY);
+				   NULL, done_label, profile_probability::very_likely ());
 	  goto do_error_label;
 	case 3:
 	  rtx_code_label *do_main_label;
 	  do_main_label = gen_label_rtx ();
 	  do_compare_rtx_and_jump (op0, const0_rtx, GE, false, mode, NULL_RTX,
-				   NULL, do_main_label, PROB_VERY_LIKELY);
+				   NULL, do_main_label, profile_probability::very_likely ());
 	  do_compare_rtx_and_jump (op1, const0_rtx, EQ, true, mode, NULL_RTX,
-				   NULL, do_main_label, PROB_VERY_LIKELY);
+				   NULL, do_main_label, profile_probability::very_likely ());
 	  expand_arith_set_overflow (lhs, target);
 	  emit_label (do_main_label);
 	  goto do_main;
@@ -1306,15 +1355,15 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	  ops.location = loc;
 	  res = expand_expr_real_2 (&ops, NULL_RTX, mode, EXPAND_NORMAL);
 	  do_compare_rtx_and_jump (op0, const0_rtx, EQ, true, mode, NULL_RTX,
-				   NULL, done_label, PROB_VERY_LIKELY);
+				   NULL, done_label, profile_probability::very_likely ());
 	  do_compare_rtx_and_jump (op0, constm1_rtx, NE, true, mode, NULL_RTX,
-				   NULL, do_error, PROB_VERY_UNLIKELY);
+				   NULL, do_error, profile_probability::very_unlikely ());
 	  int prec;
 	  prec = GET_MODE_PRECISION (mode);
 	  rtx sgn;
 	  sgn = immed_wide_int_const (wi::min_value (prec, SIGNED), mode);
 	  do_compare_rtx_and_jump (op1, sgn, EQ, true, mode, NULL_RTX,
-				   NULL, done_label, PROB_VERY_LIKELY);
+				   NULL, done_label, profile_probability::very_likely ());
 	  goto do_error_label;
 	case 3:
 	  /* Rest of handling of this case after res is computed.  */
@@ -1361,7 +1410,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 				  OPTAB_LIB_WIDEN);
 	      do_compare_rtx_and_jump (tem, const0_rtx, EQ, true, mode,
 				       NULL_RTX, NULL, done_label,
-				       PROB_VERY_LIKELY);
+				       profile_probability::very_likely ());
 	      goto do_error_label;
 	    }
 	  /* The general case, do all the needed comparisons at runtime.  */
@@ -1378,7 +1427,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	  tem = expand_binop (mode, and_optab, op0, op1, NULL_RTX, false,
 			      OPTAB_LIB_WIDEN);
 	  do_compare_rtx_and_jump (tem, const0_rtx, GE, false, mode, NULL_RTX,
-				   NULL, after_negate_label, PROB_VERY_LIKELY);
+				   NULL, after_negate_label, profile_probability::very_likely ());
 	  /* Both arguments negative here, negate them and continue with
 	     normal unsigned overflow checking multiplication.  */
 	  emit_move_insn (op0, expand_unop (mode, neg_optab, op0,
@@ -1394,13 +1443,13 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	  tem2 = expand_binop (mode, xor_optab, op0, op1, NULL_RTX, false,
 			       OPTAB_LIB_WIDEN);
 	  do_compare_rtx_and_jump (tem2, const0_rtx, GE, false, mode, NULL_RTX,
-				   NULL, do_main_label, PROB_VERY_LIKELY);
+				   NULL, do_main_label, profile_probability::very_likely ());
 	  /* One argument is negative here, the other positive.  This
 	     overflows always, unless one of the arguments is 0.  But
 	     if e.g. s2 is 0, (U) s1 * 0 doesn't overflow, whatever s1
 	     is, thus we can keep do_main code oring in overflow as is.  */
 	  do_compare_rtx_and_jump (tem, const0_rtx, EQ, true, mode, NULL_RTX,
-				   NULL, do_main_label, PROB_VERY_LIKELY);
+				   NULL, do_main_label, profile_probability::very_likely ());
 	  expand_arith_set_overflow (lhs, target);
 	  emit_label (do_main_label);
 	  goto do_main;
@@ -1413,6 +1462,49 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
   type = build_nonstandard_integer_type (GET_MODE_PRECISION (mode), uns);
   sign = uns ? UNSIGNED : SIGNED;
   icode = optab_handler (uns ? umulv4_optab : mulv4_optab, mode);
+  if (uns
+      && (integer_pow2p (arg0) || integer_pow2p (arg1))
+      && (optimize_insn_for_speed_p () || icode == CODE_FOR_nothing))
+    {
+      /* Optimize unsigned multiplication by power of 2 constant
+	 using 2 shifts, one for result, one to extract the shifted
+	 out bits to see if they are all zero.
+	 Don't do this if optimizing for size and we have umulv4_optab,
+	 in that case assume multiplication will be shorter.
+	 This is heuristics based on the single target that provides
+	 umulv4 right now (i?86/x86_64), if further targets add it, this
+	 might need to be revisited.
+	 Cases where both operands are constant should be folded already
+	 during GIMPLE, and cases where one operand is constant but not
+	 power of 2 are questionable, either the WIDEN_MULT_EXPR case
+	 below can be done without multiplication, just by shifts and adds,
+	 or we'd need to divide the result (and hope it actually doesn't
+	 really divide nor multiply) and compare the result of the division
+	 with the original operand.  */
+      rtx opn0 = op0;
+      rtx opn1 = op1;
+      tree argn0 = arg0;
+      tree argn1 = arg1;
+      if (integer_pow2p (arg0))
+	{
+	  std::swap (opn0, opn1);
+	  std::swap (argn0, argn1);
+	}
+      int cnt = tree_log2 (argn1);
+      if (cnt >= 0 && cnt < GET_MODE_PRECISION (mode))
+	{
+	  rtx upper = const0_rtx;
+	  res = expand_shift (LSHIFT_EXPR, mode, opn0, cnt, NULL_RTX, uns);
+	  if (cnt != 0)
+	    upper = expand_shift (RSHIFT_EXPR, mode, opn0,
+				  GET_MODE_PRECISION (mode) - cnt,
+				  NULL_RTX, uns);
+	  do_compare_rtx_and_jump (upper, const0_rtx, EQ, true, mode,
+				   NULL_RTX, NULL, done_label,
+				   profile_probability::very_likely ());
+	  goto do_error_label;
+	}
+    }
   if (icode != CODE_FOR_nothing)
     {
       struct expand_operand ops[4];
@@ -1430,7 +1522,8 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	      && JUMP_P (last)
 	      && any_condjump_p (last)
 	      && !find_reg_note (last, REG_BR_PROB, 0))
-	    add_int_reg_note (last, REG_BR_PROB, PROB_VERY_UNLIKELY);
+	    add_reg_br_prob_note (last, 
+				  profile_probability::very_unlikely ());
 	  emit_jump (done_label);
         }
       else
@@ -1444,15 +1537,34 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
     {
       struct separate_ops ops;
       int prec = GET_MODE_PRECISION (mode);
-      machine_mode hmode = mode_for_size (prec / 2, MODE_INT, 1);
+      scalar_int_mode hmode, wmode;
       ops.op0 = make_tree (type, op0);
       ops.op1 = make_tree (type, op1);
       ops.op2 = NULL_TREE;
       ops.location = loc;
-      if (GET_MODE_2XWIDER_MODE (mode) != VOIDmode
-	  && targetm.scalar_mode_supported_p (GET_MODE_2XWIDER_MODE (mode)))
+
+      /* Optimize unsigned overflow check where we don't use the
+	 multiplication result, just whether overflow happened.
+	 If we can do MULT_HIGHPART_EXPR, that followed by
+	 comparison of the result against zero is cheapest.
+	 We'll still compute res, but it should be DCEd later.  */
+      use_operand_p use;
+      gimple *use_stmt;
+      if (!is_ubsan
+	  && lhs
+	  && uns
+	  && !(uns0_p && uns1_p && !unsr_p)
+	  && can_mult_highpart_p (mode, uns) == 1
+	  && single_imm_use (lhs, &use, &use_stmt)
+	  && is_gimple_assign (use_stmt)
+	  && gimple_assign_rhs_code (use_stmt) == IMAGPART_EXPR)
+	goto highpart;
+
+      if (GET_MODE_2XWIDER_MODE (mode).exists (&wmode)
+	  && targetm.scalar_mode_supported_p (wmode)
+	  && can_widen_mult_without_libcall (wmode, mode, op0, op1, uns))
 	{
-	  machine_mode wmode = GET_MODE_2XWIDER_MODE (mode);
+	twoxwider:
 	  ops.code = WIDEN_MULT_EXPR;
 	  ops.type
 	    = build_nonstandard_integer_type (GET_MODE_PRECISION (wmode), uns);
@@ -1467,7 +1579,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	       HIPART is non-zero.  */
 	    do_compare_rtx_and_jump (hipart, const0_rtx, EQ, true, mode,
 				     NULL_RTX, NULL, done_label,
-				     PROB_VERY_LIKELY);
+				     profile_probability::very_likely ());
 	  else
 	    {
 	      rtx signbit = expand_shift (RSHIFT_EXPR, mode, res, prec - 1,
@@ -1477,10 +1589,40 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 		 HIPART is different from RES < 0 ? -1 : 0.  */
 	      do_compare_rtx_and_jump (signbit, hipart, EQ, true, mode,
 				       NULL_RTX, NULL, done_label,
-				       PROB_VERY_LIKELY);
+				       profile_probability::very_likely ());
 	    }
 	}
-      else if (hmode != BLKmode && 2 * GET_MODE_PRECISION (hmode) == prec)
+      else if (can_mult_highpart_p (mode, uns) == 1)
+	{
+	highpart:
+	  ops.code = MULT_HIGHPART_EXPR;
+	  ops.type = type;
+
+	  rtx hipart = expand_expr_real_2 (&ops, NULL_RTX, mode,
+					   EXPAND_NORMAL);
+	  ops.code = MULT_EXPR;
+	  res = expand_expr_real_2 (&ops, NULL_RTX, mode, EXPAND_NORMAL);
+	  if (uns)
+	    /* For the unsigned multiplication, there was overflow if
+	       HIPART is non-zero.  */
+	    do_compare_rtx_and_jump (hipart, const0_rtx, EQ, true, mode,
+				     NULL_RTX, NULL, done_label,
+				     profile_probability::very_likely ());
+	  else
+	    {
+	      rtx signbit = expand_shift (RSHIFT_EXPR, mode, res, prec - 1,
+					  NULL_RTX, 0);
+	      /* RES is low half of the double width result, HIPART
+		 the high half.  There was overflow if
+		 HIPART is different from RES < 0 ? -1 : 0.  */
+	      do_compare_rtx_and_jump (signbit, hipart, EQ, true, mode,
+				       NULL_RTX, NULL, done_label,
+				       profile_probability::very_likely ());
+	    }
+	  
+	}
+      else if (int_mode_for_size (prec / 2, 1).exists (&hmode)
+	       && 2 * GET_MODE_PRECISION (hmode) == prec)
 	{
 	  rtx_code_label *large_op0 = gen_label_rtx ();
 	  rtx_code_label *small_op0_large_op1 = gen_label_rtx ();
@@ -1570,12 +1712,12 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	  if (!op0_small_p)
 	    do_compare_rtx_and_jump (signbit0, hipart0, NE, true, hmode,
 				     NULL_RTX, NULL, large_op0,
-				     PROB_UNLIKELY);
+				     profile_probability::unlikely ());
 
 	  if (!op1_small_p)
 	    do_compare_rtx_and_jump (signbit1, hipart1, NE, true, hmode,
 				     NULL_RTX, NULL, small_op0_large_op1,
-				     PROB_UNLIKELY);
+				     profile_probability::unlikely ());
 
 	  /* If both op0 and op1 are sign (!uns) or zero (uns) extended from
 	     hmode to mode, the multiplication will never overflow.  We can
@@ -1621,7 +1763,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	  if (!op1_small_p)
 	    do_compare_rtx_and_jump (signbit1, hipart1, NE, true, hmode,
 				     NULL_RTX, NULL, both_ops_large,
-				     PROB_UNLIKELY);
+				     profile_probability::unlikely ());
 
 	  /* If op1 is sign (!uns) or zero (uns) extended from hmode to mode,
 	     but op0 is not, prepare larger, hipart and lopart pseudos and
@@ -1658,12 +1800,12 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	      else if (larger_sign != -1)
 		do_compare_rtx_and_jump (hipart, const0_rtx, GE, false, hmode,
 					 NULL_RTX, NULL, after_hipart_neg,
-					 PROB_EVEN);
+					 profile_probability::even ());
 
 	      tem = convert_modes (mode, hmode, lopart, 1);
 	      tem = expand_shift (LSHIFT_EXPR, mode, tem, hprec, NULL_RTX, 1);
 	      tem = expand_simple_binop (mode, MINUS, loxhi, tem, NULL_RTX,
-					 1, OPTAB_DIRECT);
+					 1, OPTAB_WIDEN);
 	      emit_move_insn (loxhi, tem);
 
 	      emit_label (after_hipart_neg);
@@ -1674,10 +1816,10 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	      else if (smaller_sign != -1)
 		do_compare_rtx_and_jump (lopart, const0_rtx, GE, false, hmode,
 					 NULL_RTX, NULL, after_lopart_neg,
-					 PROB_EVEN);
+					 profile_probability::even ());
 
 	      tem = expand_simple_binop (mode, MINUS, loxhi, larger, NULL_RTX,
-					 1, OPTAB_DIRECT);
+					 1, OPTAB_WIDEN);
 	      emit_move_insn (loxhi, tem);
 
 	      emit_label (after_lopart_neg);
@@ -1686,7 +1828,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	  /* loxhi += (uns) lo0xlo1 >> (bitsize / 2);  */
 	  tem = expand_shift (RSHIFT_EXPR, mode, lo0xlo1, hprec, NULL_RTX, 1);
 	  tem = expand_simple_binop (mode, PLUS, loxhi, tem, NULL_RTX,
-				     1, OPTAB_DIRECT);
+				     1, OPTAB_WIDEN);
 	  emit_move_insn (loxhi, tem);
 
 	  /* if (loxhi >> (bitsize / 2)
@@ -1704,7 +1846,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 
 	  do_compare_rtx_and_jump (signbitloxhi, hipartloxhi, NE, true, hmode,
 				   NULL_RTX, NULL, do_overflow,
-				   PROB_VERY_UNLIKELY);
+				   profile_probability::very_unlikely ());
 
 	  /* res = (loxhi << (bitsize / 2)) | (hmode) lo0xlo1;  */
 	  rtx loxhishifted = expand_shift (LSHIFT_EXPR, mode, loxhi, hprec,
@@ -1713,7 +1855,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 			       convert_modes (hmode, mode, lo0xlo1, 1), 1);
 
 	  tem = expand_simple_binop (mode, IOR, loxhishifted, tem, res,
-				     1, OPTAB_DIRECT);
+				     1, OPTAB_WIDEN);
 	  if (tem != res)
 	    emit_move_insn (res, tem);
 	  emit_jump (done_label);
@@ -1738,41 +1880,41 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	      if (!op0_medium_p)
 		{
 		  tem = expand_simple_binop (hmode, PLUS, hipart0, const1_rtx,
-					     NULL_RTX, 1, OPTAB_DIRECT);
+					     NULL_RTX, 1, OPTAB_WIDEN);
 		  do_compare_rtx_and_jump (tem, const1_rtx, GTU, true, hmode,
 					   NULL_RTX, NULL, do_error,
-					   PROB_VERY_UNLIKELY);
+					   profile_probability::very_unlikely ());
 		}
 
 	      if (!op1_medium_p)
 		{
 		  tem = expand_simple_binop (hmode, PLUS, hipart1, const1_rtx,
-					     NULL_RTX, 1, OPTAB_DIRECT);
+					     NULL_RTX, 1, OPTAB_WIDEN);
 		  do_compare_rtx_and_jump (tem, const1_rtx, GTU, true, hmode,
 					   NULL_RTX, NULL, do_error,
-					   PROB_VERY_UNLIKELY);
+					   profile_probability::very_unlikely ());
 		}
 
 	      /* At this point hipart{0,1} are both in [-1, 0].  If they are
-		 the same, overflow happened if res is negative, if they are
-		 different, overflow happened if res is positive.  */
+		 the same, overflow happened if res is non-positive, if they
+		 are different, overflow happened if res is positive.  */
 	      if (op0_sign != 1 && op1_sign != 1 && op0_sign != op1_sign)
 		emit_jump (hipart_different);
 	      else if (op0_sign == 1 || op1_sign == 1)
 		do_compare_rtx_and_jump (hipart0, hipart1, NE, true, hmode,
 					 NULL_RTX, NULL, hipart_different,
-					 PROB_EVEN);
+					 profile_probability::even ());
 
-	      do_compare_rtx_and_jump (res, const0_rtx, LT, false, mode,
+	      do_compare_rtx_and_jump (res, const0_rtx, LE, false, mode,
 				       NULL_RTX, NULL, do_error,
-				       PROB_VERY_UNLIKELY);
+				       profile_probability::very_unlikely ());
 	      emit_jump (done_label);
 
 	      emit_label (hipart_different);
 
 	      do_compare_rtx_and_jump (res, const0_rtx, GE, false, mode,
 				       NULL_RTX, NULL, do_error,
-				       PROB_VERY_UNLIKELY);
+				       profile_probability::very_unlikely ());
 	      emit_jump (done_label);
 	    }
 
@@ -1784,6 +1926,11 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
 	  tem = expand_expr_real_2 (&ops, NULL_RTX, mode, EXPAND_NORMAL);
 	  emit_move_insn (res, tem);
 	}
+      else if (GET_MODE_2XWIDER_MODE (mode).exists (&wmode)
+	       && targetm.scalar_mode_supported_p (wmode))
+	/* Even emitting a libcall is better than not detecting overflow
+	   at all.  */
+	goto twoxwider;
       else
 	{
 	  gcc_assert (!is_ubsan);
@@ -1817,7 +1964,7 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
     {
       rtx_code_label *all_done_label = gen_label_rtx ();
       do_compare_rtx_and_jump (res, const0_rtx, GE, false, mode, NULL_RTX,
-			       NULL, all_done_label, PROB_VERY_LIKELY);
+			       NULL, all_done_label, profile_probability::very_likely ());
       expand_arith_set_overflow (lhs, target);
       emit_label (all_done_label);
     }
@@ -1828,14 +1975,14 @@ expand_mul_overflow (location_t loc, tree lhs, tree arg0, tree arg1,
       rtx_code_label *all_done_label = gen_label_rtx ();
       rtx_code_label *set_noovf = gen_label_rtx ();
       do_compare_rtx_and_jump (op1, const0_rtx, GE, false, mode, NULL_RTX,
-			       NULL, all_done_label, PROB_VERY_LIKELY);
+			       NULL, all_done_label, profile_probability::very_likely ());
       expand_arith_set_overflow (lhs, target);
       do_compare_rtx_and_jump (op0, const0_rtx, EQ, true, mode, NULL_RTX,
-			       NULL, set_noovf, PROB_VERY_LIKELY);
+			       NULL, set_noovf, profile_probability::very_likely ());
       do_compare_rtx_and_jump (op0, constm1_rtx, NE, true, mode, NULL_RTX,
-			       NULL, all_done_label, PROB_VERY_UNLIKELY);
+			       NULL, all_done_label, profile_probability::very_unlikely ());
       do_compare_rtx_and_jump (op1, res, NE, true, mode, NULL_RTX, NULL,
-			       all_done_label, PROB_VERY_UNLIKELY);
+			       all_done_label, profile_probability::very_unlikely ());
       emit_label (set_noovf);
       write_complex_part (target, const0_rtx, true);
       emit_label (all_done_label);
@@ -1856,7 +2003,7 @@ static void
 expand_vector_ubsan_overflow (location_t loc, enum tree_code code, tree lhs,
 			      tree arg0, tree arg1)
 {
-  int cnt = TYPE_VECTOR_SUBPARTS (TREE_TYPE (arg0));
+  poly_uint64 cnt = TYPE_VECTOR_SUBPARTS (TREE_TYPE (arg0));
   rtx_code_label *loop_lab = NULL;
   rtx cntvar = NULL_RTX;
   tree cntv = NULL_TREE;
@@ -1866,6 +2013,8 @@ expand_vector_ubsan_overflow (location_t loc, enum tree_code code, tree lhs,
   tree resv = NULL_TREE;
   rtx lhsr = NULL_RTX;
   rtx resvr = NULL_RTX;
+  unsigned HOST_WIDE_INT const_cnt = 0;
+  bool use_loop_p = (!cnt.is_constant (&const_cnt) || const_cnt > 4);
 
   if (lhs)
     {
@@ -1886,7 +2035,7 @@ expand_vector_ubsan_overflow (location_t loc, enum tree_code code, tree lhs,
 	    }
 	}
     }
-  if (cnt > 4)
+  if (use_loop_p)
     {
       do_pending_stack_adjust ();
       loop_lab = gen_label_rtx ();
@@ -1905,10 +2054,10 @@ expand_vector_ubsan_overflow (location_t loc, enum tree_code code, tree lhs,
       rtx arg1r = expand_normal (arg1);
       arg1 = make_tree (TREE_TYPE (arg1), arg1r);
     }
-  for (int i = 0; i < (cnt > 4 ? 1 : cnt); i++)
+  for (unsigned int i = 0; i < (use_loop_p ? 1 : const_cnt); i++)
     {
       tree op0, op1, res = NULL_TREE;
-      if (cnt > 4)
+      if (use_loop_p)
 	{
 	  tree atype = build_array_type_nelts (eltype, cnt);
 	  op0 = uniform_vector_p (arg0);
@@ -1948,7 +2097,7 @@ expand_vector_ubsan_overflow (location_t loc, enum tree_code code, tree lhs,
 				  false, false, false, true, &data);
 	  break;
 	case MINUS_EXPR:
-	  if (cnt > 4 ? integer_zerop (arg0) : integer_zerop (op0))
+	  if (use_loop_p ? integer_zerop (arg0) : integer_zerop (op0))
 	    expand_neg_overflow (loc, res, op1, true, &data);
 	  else
 	    expand_addsub_overflow (loc, MINUS_EXPR, res, op0, op1,
@@ -1962,7 +2111,7 @@ expand_vector_ubsan_overflow (location_t loc, enum tree_code code, tree lhs,
 	  gcc_unreachable ();
 	}
     }
-  if (cnt > 4)
+  if (use_loop_p)
     {
       struct separate_ops ops;
       ops.code = PLUS_EXPR;
@@ -1975,9 +2124,10 @@ expand_vector_ubsan_overflow (location_t loc, enum tree_code code, tree lhs,
 				    EXPAND_NORMAL);
       if (ret != cntvar)
 	emit_move_insn (cntvar, ret);
-      do_compare_rtx_and_jump (cntvar, GEN_INT (cnt), NE, false,
+      rtx cntrtx = gen_int_mode (cnt, TYPE_MODE (sizetype));
+      do_compare_rtx_and_jump (cntvar, cntrtx, NE, false,
 			       TYPE_MODE (sizetype), NULL_RTX, NULL, loop_lab,
-			       PROB_VERY_LIKELY);
+			       profile_probability::very_likely ());
     }
   if (lhs && resv == NULL_TREE)
     {
@@ -2104,7 +2254,7 @@ expand_arith_overflow (enum tree_code code, gimple *stmt)
 	  /* The infinity precision result will always fit into result.  */
 	  rtx target = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
 	  write_complex_part (target, const0_rtx, true);
-	  enum machine_mode mode = TYPE_MODE (type);
+	  scalar_int_mode mode = SCALAR_INT_TYPE_MODE (type);
 	  struct separate_ops ops;
 	  ops.code = code;
 	  ops.type = type;
@@ -2157,7 +2307,7 @@ expand_arith_overflow (enum tree_code code, gimple *stmt)
       if (orig_precres == precres && precop <= BITS_PER_WORD)
 	{
 	  int p = MAX (min_precision, precop);
-	  enum machine_mode m = smallest_mode_for_size (p, MODE_INT);
+	  scalar_int_mode m = smallest_int_mode_for_size (p);
 	  tree optype = build_nonstandard_integer_type (GET_MODE_PRECISION (m),
 							uns0_p && uns1_p
 							&& unsr_p);
@@ -2199,7 +2349,7 @@ expand_arith_overflow (enum tree_code code, gimple *stmt)
       if (orig_precres == precres)
 	{
 	  int p = MAX (prec0, prec1);
-	  enum machine_mode m = smallest_mode_for_size (p, MODE_INT);
+	  scalar_int_mode m = smallest_int_mode_for_size (p);
 	  tree optype = build_nonstandard_integer_type (GET_MODE_PRECISION (m),
 							uns0_p && uns1_p
 							&& unsr_p);
@@ -2246,6 +2396,14 @@ expand_MUL_OVERFLOW (internal_fn, gcall *stmt)
 
 static void
 expand_LOOP_VECTORIZED (internal_fn, gcall *)
+{
+  gcc_unreachable ();
+}
+
+/* This should get folded in tree-vectorizer.c.  */
+
+static void
+expand_LOOP_DIST_ALIAS (internal_fn, gcall *)
 {
   gcc_unreachable ();
 }
@@ -2564,7 +2722,15 @@ expand_DIVMOD (internal_fn, gcall *call_stmt)
   expand_expr (build2 (COMPLEX_EXPR, TREE_TYPE (lhs),
 		       make_tree (TREE_TYPE (arg0), quotient),
 		       make_tree (TREE_TYPE (arg1), remainder)),
-	      target, VOIDmode, EXPAND_NORMAL);
+	       target, VOIDmode, EXPAND_NORMAL);
+}
+
+/* Expand a NOP.  */
+
+static void
+expand_NOP (internal_fn, gcall *)
+{
+  /* Nothing.  But it shouldn't really prevail.  */
 }
 
 /* Expand a call to FN using the operands in STMT.  FN has a single
@@ -2582,7 +2748,15 @@ expand_direct_optab_fn (internal_fn fn, gcall *stmt, direct_optab optab,
   tree lhs = gimple_call_lhs (stmt);
   tree lhs_type = TREE_TYPE (lhs);
   rtx lhs_rtx = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
-  create_output_operand (&ops[0], lhs_rtx, insn_data[icode].operand[0].mode);
+
+  /* Do not assign directly to a promoted subreg, since there is no
+     guarantee that the instruction will leave the upper bits of the
+     register in the state required by SUBREG_PROMOTED_SIGN.  */
+  rtx dest = lhs_rtx;
+  if (GET_CODE (dest) == SUBREG && SUBREG_PROMOTED_VAR_P (dest))
+    dest = NULL_RTX;
+
+  create_output_operand (&ops[0], dest, insn_data[icode].operand[0].mode);
 
   for (unsigned int i = 0; i < nargs; ++i)
     {
@@ -2700,6 +2874,30 @@ multi_vector_optab_supported_p (convert_optab optab, tree_pair types,
 #define direct_mask_store_optab_supported_p direct_optab_supported_p
 #define direct_store_lanes_optab_supported_p multi_vector_optab_supported_p
 
+/* Return the optab used by internal function FN.  */
+
+static optab
+direct_internal_fn_optab (internal_fn fn, tree_pair types)
+{
+  switch (fn)
+    {
+#define DEF_INTERNAL_FN(CODE, FLAGS, FNSPEC) \
+    case IFN_##CODE: break;
+#define DEF_INTERNAL_OPTAB_FN(CODE, FLAGS, OPTAB, TYPE) \
+    case IFN_##CODE: return OPTAB##_optab;
+#define DEF_INTERNAL_SIGNED_OPTAB_FN(CODE, FLAGS, SELECTOR, SIGNED_OPTAB, \
+				     UNSIGNED_OPTAB, TYPE)		\
+    case IFN_##CODE: return (TYPE_UNSIGNED (types.SELECTOR)		\
+			     ? UNSIGNED_OPTAB ## _optab			\
+			     : SIGNED_OPTAB ## _optab);
+#include "internal-fn.def"
+
+    case IFN_LAST:
+      break;
+    }
+  gcc_unreachable ();
+}
+
 /* Return true if FN is supported for the types in TYPES when the
    optimization type is OPT_TYPE.  The types are those associated with
    the "type0" and "type1" fields of FN's direct_internal_fn_info
@@ -2717,6 +2915,16 @@ direct_internal_fn_supported_p (internal_fn fn, tree_pair types,
     case IFN_##CODE: \
       return direct_##TYPE##_optab_supported_p (OPTAB##_optab, types, \
 						opt_type);
+#define DEF_INTERNAL_SIGNED_OPTAB_FN(CODE, FLAGS, SELECTOR, SIGNED_OPTAB, \
+				     UNSIGNED_OPTAB, TYPE)		\
+    case IFN_##CODE:							\
+      {									\
+	optab which_optab = (TYPE_UNSIGNED (types.SELECTOR)		\
+			     ? UNSIGNED_OPTAB ## _optab			\
+			     : SIGNED_OPTAB ## _optab);			\
+	return direct_##TYPE##_optab_supported_p (which_optab, types,	\
+						  opt_type);		\
+      }
 #include "internal-fn.def"
 
     case IFN_LAST:
@@ -2755,6 +2963,15 @@ set_edom_supported_p (void)
   expand_##CODE (internal_fn fn, gcall *stmt)		\
   {							\
     expand_##TYPE##_optab_fn (fn, stmt, OPTAB##_optab);	\
+  }
+#define DEF_INTERNAL_SIGNED_OPTAB_FN(CODE, FLAGS, SELECTOR, SIGNED_OPTAB, \
+				     UNSIGNED_OPTAB, TYPE)		\
+  static void								\
+  expand_##CODE (internal_fn fn, gcall *stmt)				\
+  {									\
+    tree_pair types = direct_internal_fn_types (fn, stmt);		\
+    optab which_optab = direct_internal_fn_optab (fn, types);		\
+    expand_##TYPE##_optab_fn (fn, stmt, which_optab);			\
   }
 #include "internal-fn.def"
 

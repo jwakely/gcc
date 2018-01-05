@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2018 Free Software Foundation, Inc.
    Contributed by Andy Vaught
    Namelist input contributed by Paul Thomas
    F2003 I/O support contributed by Jerry DeLisle
@@ -266,15 +266,19 @@ next_char_internal (st_parameter_dt *dtp)
     }
 
   /* Get the next character and handle end-of-record conditions.  */
-
-  if (is_char4_unit(dtp)) /* Check for kind=4 internal unit.  */
-   length = sread (dtp->u.p.current_unit->s, &c, 1);
+  if (likely (dtp->u.p.current_unit->bytes_left > 0))
+    {
+      if (unlikely (is_char4_unit(dtp))) /* Check for kind=4 internal unit.  */
+       length = sread (dtp->u.p.current_unit->s, &c, 1);
+      else
+       {
+	 char cc;
+	 length = sread (dtp->u.p.current_unit->s, &cc, 1);
+	 c = cc;
+       }
+    }
   else
-   {
-     char cc;
-     length = sread (dtp->u.p.current_unit->s, &cc, 1);
-     c = cc;
-   }
+    length = 0;
 
   if (unlikely (length < 0))
     {
@@ -290,7 +294,6 @@ next_char_internal (st_parameter_dt *dtp)
 	  generate_error (&dtp->common, LIBERROR_INTERNAL_UNIT, NULL);
 	  return '\0';
 	}
-      dtp->u.p.current_unit->bytes_left--;
     }
   else
     {
@@ -302,6 +305,7 @@ next_char_internal (st_parameter_dt *dtp)
 	  dtp->u.p.at_eof = 1;
 	}
     }
+  dtp->u.p.current_unit->bytes_left--;
 
 done:
   dtp->u.p.at_eol = (c == '\n' || c == EOF);
@@ -2099,8 +2103,6 @@ list_formatted_read_scalar (st_parameter_dt *dtp, bt type, void *p,
   int c, i, m;
   int err = 0;
 
-  dtp->u.p.namelist_mode = 0;
-
   /* Set the next_char and push_char worker functions.  */
   set_workers (dtp);
 
@@ -2298,11 +2300,16 @@ list_formatted_read_scalar (st_parameter_dt *dtp, bt type, void *p,
     free_saved (dtp);
 
 cleanup:
+  /* err may have been set above from finish_separator, so if it is set
+     trigger the hit_eof. The hit_eof will set bits in common.flags.  */
   if (err == LIBERROR_END)
     {
       free_line (dtp);
       hit_eof (dtp);
     }
+  /* Now we check common.flags for any errors that could have occurred in
+     a READ elsewhere such as in read_integer.  */
+  err = dtp->common.flags & IOPARM_LIBRETURN_MASK;
   fbuf_flush_list (dtp->u.p.current_unit, LIST_READING);
   return err;
 }
@@ -2871,6 +2878,7 @@ nml_read_obj (st_parameter_dt *dtp, namelist_info *nl, index_type offset,
   index_type m;
   size_t obj_name_len;
   void *pdata;
+  gfc_class list_obj;
 
   /* If we have encountered a previous read error or this object has not been
      touched in name parsing, just return.  */
@@ -2909,11 +2917,28 @@ nml_read_obj (st_parameter_dt *dtp, namelist_info *nl, index_type offset,
     {
       /* Update the pointer to the data, using the current index vector  */
 
-      pdata = (void*)(nl->mem_pos + offset);
-      for (dim = 0; dim < nl->var_rank; dim++)
-	pdata = (void*)(pdata + (nl->ls[dim].idx
-				 - GFC_DESCRIPTOR_LBOUND(nl,dim))
-			* GFC_DESCRIPTOR_STRIDE(nl,dim) * nl->size);
+      if ((nl->type == BT_DERIVED || nl->type == BT_CLASS)
+	  && nl->dtio_sub != NULL)
+	{
+	  pdata = NULL;  /* Not used under these conidtions.  */
+	  if (nl->type == BT_CLASS)
+	    list_obj.data = ((gfc_class*)nl->mem_pos)->data;
+	  else
+	    list_obj.data = (void *)nl->mem_pos;
+
+	  for (dim = 0; dim < nl->var_rank; dim++)
+	    list_obj.data = list_obj.data + (nl->ls[dim].idx
+	      - GFC_DESCRIPTOR_LBOUND(nl,dim))
+	      * GFC_DESCRIPTOR_STRIDE(nl,dim) * nl->size;
+	}
+      else
+	{
+	  pdata = (void*)(nl->mem_pos + offset);
+	  for (dim = 0; dim < nl->var_rank; dim++)
+	    pdata = (void*)(pdata + (nl->ls[dim].idx
+	      - GFC_DESCRIPTOR_LBOUND(nl,dim))
+	      * GFC_DESCRIPTOR_STRIDE(nl,dim) * nl->size);
+	}
 
       /* If we are finished with the repeat count, try to read next value.  */
 
@@ -2958,6 +2983,7 @@ nml_read_obj (st_parameter_dt *dtp, namelist_info *nl, index_type offset,
 	    break;
 
 	  case BT_DERIVED:
+	  case BT_CLASS:
 	    /* If this object has a User Defined procedure, call it.  */
 	    if (nl->dtio_sub != NULL)
 	      {
@@ -2970,13 +2996,11 @@ nml_read_obj (st_parameter_dt *dtp, namelist_info *nl, index_type offset,
 		int noiostat;
 		int *child_iostat = NULL;
 		gfc_array_i4 vlist;
-		gfc_class list_obj;
 		formatted_dtio dtio_ptr = (formatted_dtio)nl->dtio_sub;
 
 		GFC_DESCRIPTOR_DATA(&vlist) = NULL;
 		GFC_DIMENSION_SET(vlist.dim[0],1, 0, 0);
-
-		list_obj.data = (void *)nl->mem_pos;
+		
 		list_obj.vptr = nl->vtable;
 		list_obj.len = 0;
 
@@ -2996,11 +3020,6 @@ nml_read_obj (st_parameter_dt *dtp, namelist_info *nl, index_type offset,
 		    child_iomsg = tmp_iomsg;
 		    child_iomsg_len = IOMSG_LEN;
 		  }
-
-		/* If reading from an internal unit, stash it to allow
-		   the child procedure to access it.  */
-		if (is_internal_unit (dtp))
-		  stash_internal_unit (dtp);
 
 		/* Call the user defined formatted READ procedure.  */
 		dtp->u.p.current_unit->child_dtio++;
@@ -3529,7 +3548,6 @@ namelist_read (st_parameter_dt *dtp)
      name.  */
   namelist_info *prev_nl = NULL;
 
-  dtp->u.p.namelist_mode = 1;
   dtp->u.p.input_complete = 0;
   dtp->u.p.expanded_read = 0;
 

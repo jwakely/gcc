@@ -494,7 +494,7 @@ package Sinput is
    --  NEL code. Now such programs can of course be compiled in UTF-8 mode,
    --  but in practice they also compile fine in standard 8-bit mode without
    --  specifying a character encoding. Since this is common practice, it would
-   --  be a signficant upwards incompatibility to recognize NEL in 8-bit mode.
+   --  be a significant upwards incompatibility to recognize NEL in 8-bit mode.
 
    -----------------
    -- Subprograms --
@@ -715,6 +715,13 @@ package Sinput is
    --  Writes out internal tables to current tree file using the relevant
    --  Table.Tree_Write routines.
 
+   procedure Clear_Source_File_Table;
+   --  This procedure frees memory allocated in the Source_File table (in the
+   --  private). It should only be used when it is guaranteed that all source
+   --  files that have been loaded so far will not be accessed before being
+   --  reloaded. It is intended for tools that parse several times sources,
+   --  to avoid memory leaks.
+
 private
    pragma Inline (File_Name);
    pragma Inline (Full_File_Name);
@@ -747,6 +754,8 @@ private
    pragma Inline (Last_Source_File);
    pragma Inline (Num_Source_Files);
    pragma Inline (Num_Source_Lines);
+
+   pragma Inline (Line_Start);
 
    No_Instance_Id : constant Instance_Id := 0;
 

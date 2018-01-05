@@ -52,7 +52,9 @@ package Exp_Util is
 
    --    For an expression occurring in a declaration (declarations always
    --    appear in lists), the actions are similarly inserted into the list
-   --    just before the associated declaration.
+   --    just before the associated declaration. ???Declarations do not always
+   --    appear in lists; in particular, a library unit declaration does not
+   --    appear in a list, and Insert_Action will crash in that case.
 
    --  The following special cases arise:
 
@@ -592,11 +594,9 @@ package Exp_Util is
    function Find_Prim_Op
      (T    : Entity_Id;
       Name : TSS_Name_Type) return Entity_Id;
-   --  Find the first primitive operation of type T whose name has the form
-   --  indicated by the name parameter (i.e. is a type support subprogram
-   --  with the indicated suffix). This function allows use of a primitive
-   --  operation which is not directly visible. If T is a class wide type,
-   --  then the reference is to an operation of the corresponding root type.
+   --  Same as Find_Prim_Op above, except we're searching for an op that has
+   --  the form indicated by Name (i.e. is a type support subprogram with the
+   --  indicated suffix).
 
    function Find_Optional_Prim_Op
      (T : Entity_Id; Name : Name_Id) return Entity_Id;
@@ -776,12 +776,6 @@ package Exp_Util is
    function Is_Non_BIP_Func_Call (Expr : Node_Id) return Boolean;
    --  Determine whether node Expr denotes a non build-in-place function call
 
-   function Is_Object_Access_BIP_Func_Call
-      (Expr   : Node_Id;
-       Obj_Id : Entity_Id) return Boolean;
-   --  Determine if Expr denotes a build-in-place function which stores its
-   --  result in the BIPaccess actual parameter whose prefix must match Obj_Id.
-
    function Is_Possibly_Unaligned_Object (N : Node_Id) return Boolean;
    --  Node N is an object reference. This function returns True if it is
    --  possible that the object may not be aligned according to the normal
@@ -864,11 +858,8 @@ package Exp_Util is
    --  False means that it is not known if the value is positive or negative.
 
    function Make_Invariant_Call (Expr : Node_Id) return Node_Id;
-   --  Expr is an object of a type which Has_Invariants set (and which thus
-   --  also has an Invariant_Procedure set). If invariants are enabled, this
-   --  function returns a call to the Invariant procedure passing Expr as the
-   --  argument, and returns it unanalyzed. If invariants are not enabled,
-   --  returns a null statement.
+   --  Generate a call to the Invariant_Procedure associated with the type of
+   --  expression Expr. Expr is passed as an actual parameter in the call.
 
    function Make_Predicate_Call
      (Typ  : Entity_Id;
@@ -932,11 +923,9 @@ package Exp_Util is
    --  consist of constants, when the object has a nontrivial initialization
    --  or is controlled.
 
-   function Needs_Finalization (T : Entity_Id) return Boolean;
-   --  True if type T is controlled, or has controlled subcomponents. Also
-   --  True if T is a class-wide type, because some type extension might add
-   --  controlled subcomponents, except that if pragma Restrictions
-   --  (No_Finalization) applies, this is False for class-wide types.
+   function Needs_Finalization (Typ : Entity_Id) return Boolean;
+   --  Determine whether type Typ is controlled and this requires finalization
+   --  actions.
 
    function Non_Limited_Designated_Type (T : Entity_Id) return Entity_Id;
    --  An anonymous access type may designate a limited view. Check whether
@@ -1179,7 +1168,9 @@ package Exp_Util is
    function Within_Internal_Subprogram return Boolean;
    --  Indicates that some expansion is taking place within the body of a
    --  predefined primitive operation. Some expansion activity (e.g. predicate
-   --  checks) is disabled in such.
+   --  checks) is disabled in such. Because we want to detect invalid uses
+   --  of function calls within predicates (which lead to infinite recursion)
+   --  predicate functions themselves are not considered internal here.
 
 private
    pragma Inline (Duplicate_Subexpr);

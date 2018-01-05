@@ -1,5 +1,5 @@
 /* Chains of recurrences.
-   Copyright (C) 2003-2017 Free Software Foundation, Inc.
+   Copyright (C) 2003-2018 Free Software Foundation, Inc.
    Contributed by Sebastian Pop <pop@cri.ensmp.fr>
 
 This file is part of GCC.
@@ -662,11 +662,11 @@ chrec_apply (unsigned var,
     {
       fprintf (dump_file, "  (varying_loop = %d\n", var);
       fprintf (dump_file, ")\n  (chrec = ");
-      print_generic_expr (dump_file, chrec, 0);
+      print_generic_expr (dump_file, chrec);
       fprintf (dump_file, ")\n  (x = ");
-      print_generic_expr (dump_file, x, 0);
+      print_generic_expr (dump_file, x);
       fprintf (dump_file, ")\n  (res = ");
-      print_generic_expr (dump_file, res, 0);
+      print_generic_expr (dump_file, res);
       fprintf (dump_file, "))\n");
     }
 
@@ -872,8 +872,7 @@ reset_evolution_in_loop (unsigned loop_num,
 					   new_evol);
       tree right = reset_evolution_in_loop (loop_num, CHREC_RIGHT (chrec),
 					    new_evol);
-      return build3 (POLYNOMIAL_CHREC, TREE_TYPE (left),
-		     CHREC_VAR (chrec), left, right);
+      return build_polynomial_chrec (CHREC_VARIABLE (chrec), left, right);
     }
 
   while (TREE_CODE (chrec) == POLYNOMIAL_CHREC
@@ -962,6 +961,7 @@ chrec_contains_symbols (const_tree chrec)
 
   if (TREE_CODE (chrec) == SSA_NAME
       || VAR_P (chrec)
+      || TREE_CODE (chrec) == POLY_INT_CST
       || TREE_CODE (chrec) == PARM_DECL
       || TREE_CODE (chrec) == FUNCTION_DECL
       || TREE_CODE (chrec) == LABEL_DECL
@@ -1162,6 +1162,7 @@ evolution_function_is_univariate_p (const_tree chrec)
 	    return false;
 	  break;
 	}
+      return true;
 
     default:
       return true;
@@ -1610,6 +1611,9 @@ operator_is_linear (tree scev)
 bool
 scev_is_linear_expression (tree scev)
 {
+  if (evolution_function_is_constant_p (scev))
+    return true;
+
   if (scev == NULL
       || !operator_is_linear (scev))
     return false;

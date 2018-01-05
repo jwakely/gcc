@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2018 Free Software Foundation, Inc.
    Contributed by Andy Vaught
    Namelist output contributed by Paul Thomas
    F2003 I/O support contributed by Jerry DeLisle
@@ -870,8 +870,11 @@ write_decimal (st_parameter_dt *dtp, const fnode *f, const char *source,
 	  goto done;
 	}
 
-      memset4 (p4, ' ', nblank);
-      p4 += nblank;
+      if (!dtp->u.p.namelist_mode)
+	{
+	  memset4 (p4, ' ', nblank);
+	  p4 += nblank;
+	}
 
       switch (sign)
 	{
@@ -890,6 +893,12 @@ write_decimal (st_parameter_dt *dtp, const fnode *f, const char *source,
 
       memcpy4 (p4, q, digits);
       return;
+
+      if (dtp->u.p.namelist_mode)
+	{
+	  p4 += digits;
+	  memset4 (p4, ' ', nblank);
+	}
     }
 
   if (nblank < 0)
@@ -898,8 +907,11 @@ write_decimal (st_parameter_dt *dtp, const fnode *f, const char *source,
       goto done;
     }
 
-  memset (p, ' ', nblank);
-  p += nblank;
+  if (!dtp->u.p.namelist_mode)
+    {
+      memset (p, ' ', nblank);
+      p += nblank;
+    }
 
   switch (sign)
     {
@@ -917,6 +929,12 @@ write_decimal (st_parameter_dt *dtp, const fnode *f, const char *source,
   p += nzero;
 
   memcpy (p, q, digits);
+
+  if (dtp->u.p.namelist_mode)
+    {
+      p += digits;
+      memset (p, ' ', nblank);
+    }
 
  done:
   return;
@@ -986,7 +1004,7 @@ btoa_big (const char *s, char *buffer, int len, GFC_UINTEGER_LARGEST *n)
   int i, j;
 
   q = buffer;
-  if (big_endian)
+  if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
     {
       const char *p = s;
       for (i = 0; i < len; i++)
@@ -1051,7 +1069,7 @@ otoa_big (const char *s, char *buffer, int len, GFC_UINTEGER_LARGEST *n)
   *q = '\0';
   i = k = octet = 0;
 
-  if (big_endian)
+  if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
     {
       const char *p = s + len - 1;
       char c = *p;
@@ -1126,7 +1144,7 @@ ztoa_big (const char *s, char *buffer, int len, GFC_UINTEGER_LARGEST *n)
 
   q = buffer;
 
-  if (big_endian)
+  if (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
     {
       const char *p = s;
       for (i = 0; i < len; i++)
@@ -1300,17 +1318,12 @@ write_logical (st_parameter_dt *dtp, const char *source, int length)
 /* Write a list-directed integer value.  */
 
 static void
-write_integer (st_parameter_dt *dtp, const char *source, int length)
+write_integer (st_parameter_dt *dtp, const char *source, int kind)
 {
-  char *p;
-  const char *q;
-  int digits;
   int width;
-  char itoa_buf[GFC_ITOA_BUF_SIZE];
+  fnode f;
 
-  q = gfc_itoa (extract_int (source, length), itoa_buf, sizeof (itoa_buf));
-
-  switch (length)
+  switch (kind)
     {
     case 1:
       width = 4;
@@ -1332,41 +1345,9 @@ write_integer (st_parameter_dt *dtp, const char *source, int length)
       width = 0;
       break;
     }
-
-  digits = strlen (q);
-
-  if (width < digits)
-    width = digits;
-  p = write_block (dtp, width);
-  if (p == NULL)
-    return;
-
-  if (unlikely (is_char4_unit (dtp)))
-    {
-      gfc_char4_t *p4 = (gfc_char4_t *) p;
-      if (dtp->u.p.no_leading_blank)
-	{
-	  memcpy4 (p4, q, digits);
-	  memset4 (p4 + digits, ' ', width - digits);
-	}
-      else
-	{
-	  memset4 (p4, ' ', width - digits);
-	  memcpy4 (p4 + width - digits, q, digits);
-	}
-      return;
-    }
-
-  if (dtp->u.p.no_leading_blank)
-    {
-      memcpy (p, q, digits);
-      memset (p + digits, ' ', width - digits);
-    }
-  else
-    {
-      memset (p, ' ', width - digits);
-      memcpy (p + width - digits, q, digits);
-    }
+  f.u.integer.w = width;
+  f.u.integer.m = -1;
+  write_decimal (dtp, &f, source, kind, (void *) gfc_itoa);
 }
 
 
@@ -1552,7 +1533,7 @@ select_string (st_parameter_dt *dtp, const fnode *f, char *buf, size_t *size,
 	       int kind)
 {
   char *result;
-  *size = size_from_kind (dtp, f, kind) + f->u.real.d;
+  *size = size_from_kind (dtp, f, kind) + f->u.real.d + 1;
   if (*size > BUF_STACK_SZ)
      result = xmalloc (*size);
   else
@@ -1809,9 +1790,11 @@ write_complex (st_parameter_dt *dtp, const char *source, int kind, size_t size)
                            precision, buf_size, result1, &res_len1);
   get_float_string (dtp, &f, source + size / 2 , kind, 0, buffer,
                            precision, buf_size, result2, &res_len2);
-  lblanks = width - res_len1 - res_len2 - 3;
-
-  write_x (dtp, lblanks, lblanks);
+  if (!dtp->u.p.namelist_mode)
+    {
+      lblanks = width - res_len1 - res_len2 - 3;
+      write_x (dtp, lblanks, lblanks);
+    }
   write_char (dtp, '(');
   write_float_string (dtp, result1, res_len1);
   write_char (dtp, semi_comma);
@@ -2248,16 +2231,11 @@ nml_write_obj (st_parameter_dt *dtp, namelist_info *obj, index_type offset,
 		      child_iomsg_len = IOMSG_LEN;
 		    }
 
-		  /* If writing to an internal unit, stash it to allow
-		     the child procedure to access it.  */
-		  if (is_internal_unit (dtp))
-		    stash_internal_unit (dtp);
-		      
 		  /* Call the user defined formatted WRITE procedure.  */
 		  dtp->u.p.current_unit->child_dtio++;
 		  if (obj->type == BT_DERIVED)
 		    {
-		      // build a class container
+		      /* Build a class container.  */
 		      gfc_class list_obj;
 		      list_obj.data = p;
 		      list_obj.vptr = obj->vtable;
@@ -2416,7 +2394,7 @@ namelist_write (st_parameter_dt *dtp)
   write_character (dtp, "&", 1, 1, NODELIM);
 
   /* Write namelist name in upper case - f95 std.  */
-  for (i = 0 ;i < dtp->namelist_name_len ;i++ )
+  for (gfc_charlen_type i = 0; i < dtp->namelist_name_len; i++ )
     {
       c = toupper ((int) dtp->namelist_name[i]);
       write_character (dtp, &c, 1 ,1, NODELIM);

@@ -1,5 +1,5 @@
 /* Code sinking for trees
-   Copyright (C) 2001-2017 Free Software Foundation, Inc.
+   Copyright (C) 2001-2018 Free Software Foundation, Inc.
    Contributed by Daniel Berlin <dan@dberlin.org>
 
 This file is part of GCC.
@@ -128,7 +128,7 @@ static basic_block
 nearest_common_dominator_of_uses (def_operand_p def_p, bool *debug_stmts)
 {
   tree var = DEF_FROM_PTR (def_p);
-  bitmap blocks = BITMAP_ALLOC (NULL);
+  auto_bitmap blocks;
   basic_block commondom;
   unsigned int j;
   bitmap_iterator bi;
@@ -158,17 +158,14 @@ nearest_common_dominator_of_uses (def_operand_p def_p, bool *debug_stmts)
 
       /* Short circuit. Nothing dominates the entry block.  */
       if (useblock == ENTRY_BLOCK_PTR_FOR_FN (cfun))
-	{
-	  BITMAP_FREE (blocks);
-	  return NULL;
-	}
+	return NULL;
+
       bitmap_set_bit (blocks, useblock->index);
     }
   commondom = BASIC_BLOCK_FOR_FN (cfun, bitmap_first_set_bit (blocks));
   EXECUTE_IF_SET_IN_BITMAP (blocks, 0, j, bi)
     commondom = nearest_common_dominator (CDI_DOMINATORS, commondom,
 					  BASIC_BLOCK_FOR_FN (cfun, j));
-  BITMAP_FREE (blocks);
   return commondom;
 }
 
@@ -229,7 +226,10 @@ select_best_block (basic_block early_bb,
   /* If BEST_BB is at the same nesting level, then require it to have
      significantly lower execution frequency to avoid gratutious movement.  */
   if (bb_loop_depth (best_bb) == bb_loop_depth (early_bb)
-      && best_bb->frequency < (early_bb->frequency * threshold / 100.0))
+      /* If result of comparsion is unknown, preffer EARLY_BB.
+	 Thus use !(...>=..) rather than (...<...)  */
+      && !(best_bb->count.apply_scale (100, 1)
+	   > (early_bb->count.apply_scale (threshold, 1))))
     return best_bb;
 
   /* No better block found, so return EARLY_BB, which happens to be the

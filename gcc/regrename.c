@@ -1,5 +1,5 @@
 /* Register renaming for the GNU compiler.
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2018 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -312,7 +312,7 @@ check_new_reg_p (int reg ATTRIBUTE_UNUSED, int new_reg,
 		 struct du_head *this_head, HARD_REG_SET this_unavailable)
 {
   machine_mode mode = GET_MODE (*this_head->first->loc);
-  int nregs = hard_regno_nregs[new_reg][mode];
+  int nregs = hard_regno_nregs (new_reg, mode);
   int i;
   struct du_chain *tmp;
 
@@ -335,12 +335,12 @@ check_new_reg_p (int reg ATTRIBUTE_UNUSED, int new_reg,
   /* See whether it accepts all modes that occur in
      definition and uses.  */
   for (tmp = this_head->first; tmp; tmp = tmp->next_use)
-    if ((! HARD_REGNO_MODE_OK (new_reg, GET_MODE (*tmp->loc))
+    if ((!targetm.hard_regno_mode_ok (new_reg, GET_MODE (*tmp->loc))
 	 && ! DEBUG_INSN_P (tmp->insn))
 	|| (this_head->need_caller_save_reg
-	    && ! (HARD_REGNO_CALL_PART_CLOBBERED
+	    && ! (targetm.hard_regno_call_part_clobbered
 		  (reg, GET_MODE (*tmp->loc)))
-	    && (HARD_REGNO_CALL_PART_CLOBBERED
+	    && (targetm.hard_regno_call_part_clobbered
 		(new_reg, GET_MODE (*tmp->loc)))))
       return false;
 
@@ -990,7 +990,7 @@ regrename_do_replace (struct du_head *head, int reg)
   mode = GET_MODE (*head->first->loc);
   head->renamed = 1;
   head->regno = reg;
-  head->nregs = hard_regno_nregs[reg][mode];
+  head->nregs = hard_regno_nregs (reg, mode);
   return true;
 }
 
@@ -1697,9 +1697,11 @@ build_def_use (basic_block bb)
 		     not already tracking such a reg, we won't start here,
 		     and we must instead make sure to make the operand visible
 		     to the machinery that tracks hard registers.  */
+		  machine_mode i_mode = recog_data.operand_mode[i];
+		  machine_mode matches_mode = recog_data.operand_mode[matches];
 		  if (matches >= 0
-		      && (GET_MODE_SIZE (recog_data.operand_mode[i])
-			  != GET_MODE_SIZE (recog_data.operand_mode[matches]))
+		      && maybe_ne (GET_MODE_SIZE (i_mode),
+				   GET_MODE_SIZE (matches_mode))
 		      && !verify_reg_in_set (op, &live_in_chains))
 		    {
 		      untracked_operands |= 1 << i;
@@ -1876,7 +1878,7 @@ build_def_use (basic_block bb)
 	    if (REG_NOTE_KIND (note) == REG_CFA_RESTORE)
 	      scan_rtx (insn, &XEXP (note, 0), NO_REGS, mark_all_read, OP_IN);
 	}
-      else if (DEBUG_INSN_P (insn)
+      else if (DEBUG_BIND_INSN_P (insn)
 	       && !VAR_LOC_UNKNOWN_P (INSN_VAR_LOCATION_LOC (insn)))
 	{
 	  scan_rtx (insn, &INSN_VAR_LOCATION_LOC (insn),

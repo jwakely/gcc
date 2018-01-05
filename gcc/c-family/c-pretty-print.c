@@ -1,5 +1,5 @@
 /* Subroutines common to both C and C++ pretty-printers.
-   Copyright (C) 2002-2017 Free Software Foundation, Inc.
+   Copyright (C) 2002-2018 Free Software Foundation, Inc.
    Contributed by Gabriel Dos Reis <gdr@integrable-solutions.net>
 
 This file is part of GCC.
@@ -24,6 +24,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "c-pretty-print.h"
 #include "diagnostic.h"
 #include "stor-layout.h"
+#include "stringpool.h"
 #include "attribs.h"
 #include "intl.h"
 #include "tree-pretty-print.h"
@@ -520,6 +521,11 @@ pp_c_parameter_type_list (c_pretty_printer *pp, tree t)
 	  else
 	    pp->abstract_declarator (TREE_VALUE (parms));
 	}
+      if (!first && !parms)
+	{
+	  pp_separate_with (pp, ',');
+	  pp_c_ws_string (pp, "...");
+	}
     }
   pp_c_right_paren (pp);
 }
@@ -910,9 +916,9 @@ pp_c_integer_constant (c_pretty_printer *pp, tree i)
     pp_unsigned_wide_integer (pp, tree_to_uhwi (i));
   else
     {
-      wide_int wi = i;
+      wide_int wi = wi::to_wide (i);
 
-      if (wi::lt_p (i, 0, TYPE_SIGN (TREE_TYPE (i))))
+      if (wi::lt_p (wi::to_wide (i), 0, TYPE_SIGN (TREE_TYPE (i))))
 	{
 	  pp_minus (pp);
 	  wi = -wi;
@@ -1373,8 +1379,9 @@ pp_c_initializer_list (c_pretty_printer *pp, tree e)
     case VECTOR_TYPE:
       if (TREE_CODE (e) == VECTOR_CST)
 	{
-	  unsigned i;
-	  for (i = 0; i < VECTOR_CST_NELTS (e); ++i)
+	  /* We don't create variable-length VECTOR_CSTs.  */
+	  unsigned int nunits = VECTOR_CST_NELTS (e).to_constant ();
+	  for (unsigned int i = 0; i < nunits; ++i)
 	    {
 	      if (i > 0)
 		pp_separate_with (pp, ',');
@@ -1476,17 +1483,6 @@ c_pretty_printer::postfix_expression (tree e)
       pp_c_right_bracket (this);
       break;
 
-    case ARRAY_NOTATION_REF:
-      postfix_expression (ARRAY_NOTATION_ARRAY (e));
-      pp_c_left_bracket (this);
-      expression (ARRAY_NOTATION_START (e));
-      pp_colon (this);
-      expression (ARRAY_NOTATION_LENGTH (e));
-      pp_colon (this);
-      expression (ARRAY_NOTATION_STRIDE (e));
-      pp_c_right_bracket (this);
-      break;
-      
     case CALL_EXPR:
       {
 	call_expr_arg_iterator iter;
@@ -1549,6 +1545,14 @@ c_pretty_printer::postfix_expression (tree e)
       pp_c_ws_string (this, flag_isoc99
 			   ? "islessgreater"
 			   : "__builtin_islessgreater");
+      goto two_args_fun;
+
+    case MAX_EXPR:
+      pp_c_ws_string (this, "max");
+      goto two_args_fun;
+
+    case MIN_EXPR:
+      pp_c_ws_string (this, "min");
       goto two_args_fun;
 
     two_args_fun:
@@ -1829,6 +1833,8 @@ c_pretty_printer::multiplicative_expression (tree e)
     case MULT_EXPR:
     case TRUNC_DIV_EXPR:
     case TRUNC_MOD_EXPR:
+    case EXACT_DIV_EXPR:
+    case RDIV_EXPR:
       multiplicative_expression (TREE_OPERAND (e, 0));
       pp_c_whitespace (this);
       if (code == MULT_EXPR)
@@ -1860,6 +1866,7 @@ pp_c_additive_expression (c_pretty_printer *pp, tree e)
     {
     case POINTER_PLUS_EXPR:
     case PLUS_EXPR:
+    case POINTER_DIFF_EXPR:
     case MINUS_EXPR:
       pp_c_additive_expression (pp, TREE_OPERAND (e, 0));
       pp_c_whitespace (pp);
@@ -1890,9 +1897,13 @@ pp_c_shift_expression (c_pretty_printer *pp, tree e)
     {
     case LSHIFT_EXPR:
     case RSHIFT_EXPR:
+    case LROTATE_EXPR:
+    case RROTATE_EXPR:
       pp_c_shift_expression (pp, TREE_OPERAND (e, 0));
       pp_c_whitespace (pp);
-      pp_string (pp, code == LSHIFT_EXPR ? "<<" : ">>");
+      pp_string (pp, code == LSHIFT_EXPR ? "<<" :
+		     code == RSHIFT_EXPR ? ">>" :
+		     code == LROTATE_EXPR ? "<<<" : ">>>");
       pp_c_whitespace (pp);
       pp_c_additive_expression (pp, TREE_OPERAND (e, 1));
       break;
@@ -2171,7 +2182,6 @@ c_pretty_printer::expression (tree e)
     case POSTINCREMENT_EXPR:
     case POSTDECREMENT_EXPR:
     case ARRAY_REF:
-    case ARRAY_NOTATION_REF:
     case CALL_EXPR:
     case COMPONENT_REF:
     case BIT_FIELD_REF:
@@ -2186,6 +2196,8 @@ c_pretty_printer::expression (tree e)
     case UNLT_EXPR:
     case UNGE_EXPR:
     case UNGT_EXPR:
+    case MAX_EXPR:
+    case MIN_EXPR:
     case ABS_EXPR:
     case CONSTRUCTOR:
     case COMPOUND_LITERAL_EXPR:
@@ -2217,11 +2229,15 @@ c_pretty_printer::expression (tree e)
     case MULT_EXPR:
     case TRUNC_MOD_EXPR:
     case TRUNC_DIV_EXPR:
+    case EXACT_DIV_EXPR:
+    case RDIV_EXPR:
       multiplicative_expression (e);
       break;
 
     case LSHIFT_EXPR:
     case RSHIFT_EXPR:
+    case LROTATE_EXPR:
+    case RROTATE_EXPR:
       pp_c_shift_expression (this, e);
       break;
 
@@ -2266,6 +2282,7 @@ c_pretty_printer::expression (tree e)
 
     case POINTER_PLUS_EXPR:
     case PLUS_EXPR:
+    case POINTER_DIFF_EXPR:
     case MINUS_EXPR:
       pp_c_additive_expression (this, e);
       break;

@@ -1,5 +1,5 @@
 /* Deal with interfaces.
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2018 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -645,7 +645,8 @@ gfc_compare_derived_types (gfc_symbol *derived1, gfc_symbol *derived2)
     return false;
 
   if (!(derived1->attr.sequence && derived2->attr.sequence)
-      && !(derived1->attr.is_bind_c && derived2->attr.is_bind_c))
+      && !(derived1->attr.is_bind_c && derived2->attr.is_bind_c)
+      && !(derived1->attr.pdt_type && derived2->attr.pdt_type))
     return false;
 
   /* Protect against null components.  */
@@ -1261,8 +1262,13 @@ generic_correspondence (gfc_formal_arglist *f1, gfc_formal_arglist *f2,
 static int
 symbol_rank (gfc_symbol *sym)
 {
-  gfc_array_spec *as;
-  as = (sym->ts.type == BT_CLASS) ? CLASS_DATA (sym)->as : sym->as;
+  gfc_array_spec *as = NULL;
+
+  if (sym->ts.type == BT_CLASS && CLASS_DATA (sym) && CLASS_DATA (sym)->as)
+    as = CLASS_DATA (sym)->as;
+  else
+    as = sym->as;
+
   return as ? as->rank : 0;
 }
 
@@ -1792,13 +1798,27 @@ check_interface0 (gfc_interface *p, const char *interface_name)
 	   || !p->sym->attr.if_source)
 	  && !gfc_fl_struct (p->sym->attr.flavor))
 	{
+	  const char *guessed
+	    = gfc_lookup_function_fuzzy (p->sym->name, p->sym->ns->sym_root);
+
 	  if (p->sym->attr.external)
-	    gfc_error ("Procedure %qs in %s at %L has no explicit interface",
-		       p->sym->name, interface_name, &p->sym->declared_at);
+	    if (guessed)
+	      gfc_error ("Procedure %qs in %s at %L has no explicit interface"
+			 "; did you mean %qs?",
+			 p->sym->name, interface_name, &p->sym->declared_at,
+			 guessed);
+	    else
+	      gfc_error ("Procedure %qs in %s at %L has no explicit interface",
+			 p->sym->name, interface_name, &p->sym->declared_at);
 	  else
-	    gfc_error ("Procedure %qs in %s at %L is neither function nor "
-		       "subroutine", p->sym->name, interface_name,
-		      &p->sym->declared_at);
+	    if (guessed)
+	      gfc_error ("Procedure %qs in %s at %L is neither function nor "
+			 "subroutine; did you mean %qs?", p->sym->name,
+			interface_name, &p->sym->declared_at, guessed);
+	    else
+	      gfc_error ("Procedure %qs in %s at %L is neither function nor "
+			 "subroutine", p->sym->name, interface_name,
+			&p->sym->declared_at);
 	  return true;
 	}
 
@@ -1903,7 +1923,7 @@ check_interface1 (gfc_interface *p, gfc_interface *q0,
 static void
 check_sym_interfaces (gfc_symbol *sym)
 {
-  char interface_name[100];
+  char interface_name[GFC_MAX_SYMBOL_LEN + sizeof("generic interface ''")];
   gfc_interface *p;
 
   if (sym->ns != gfc_current_ns)
@@ -1940,7 +1960,7 @@ check_sym_interfaces (gfc_symbol *sym)
 static void
 check_uop_interfaces (gfc_user_op *uop)
 {
-  char interface_name[100];
+  char interface_name[GFC_MAX_SYMBOL_LEN + sizeof("operator interface ''")];
   gfc_user_op *uop2;
   gfc_namespace *ns;
 
@@ -2017,7 +2037,7 @@ void
 gfc_check_interfaces (gfc_namespace *ns)
 {
   gfc_namespace *old_ns, *ns2;
-  char interface_name[100];
+  char interface_name[GFC_MAX_SYMBOL_LEN + sizeof("intrinsic '' operator")];
   int i;
 
   old_ns = gfc_current_ns;
@@ -2335,7 +2355,7 @@ compare_parameter (gfc_symbol *formal, gfc_expr *actual,
   if (formal->attr.codimension)
     {
       /* F2008, 12.5.2.8 + Corrig 2 (IR F08/0048).  */
-      /* F2015, 12.5.2.8.  */
+      /* F2018, 12.5.2.8.  */
       if (formal->attr.dimension
 	  && (formal->attr.contiguous || formal->as->type != AS_ASSUMED_SHAPE)
 	  && actual_attr.dimension
@@ -2777,6 +2797,31 @@ is_procptr_result (gfc_expr *expr)
 }
 
 
+/* Recursively append candidate argument ARG to CANDIDATES.  Store the
+   number of total candidates in CANDIDATES_LEN.  */
+
+static void
+lookup_arg_fuzzy_find_candidates (gfc_formal_arglist *arg,
+				  char **&candidates,
+				  size_t &candidates_len)
+{
+  for (gfc_formal_arglist *p = arg; p && p->sym; p = p->next)
+    vec_push (candidates, candidates_len, p->sym->name);
+}
+
+
+/* Lookup argument ARG fuzzily, taking names in ARGUMENTS into account.  */
+
+static const char*
+lookup_arg_fuzzy (const char *arg, gfc_formal_arglist *arguments)
+{
+  char **candidates = NULL;
+  size_t candidates_len = 0;
+  lookup_arg_fuzzy_find_candidates (arguments, candidates, candidates_len);
+  return gfc_closest_fuzzy_match (arg, candidates);
+}
+
+
 /* Given formal and actual argument lists, see if they are compatible.
    If they are compatible, the actual argument list is sorted to
    correspond with the formal list, and elements for missing optional
@@ -2830,8 +2875,16 @@ compare_actual_formal (gfc_actual_arglist **ap, gfc_formal_arglist *formal,
 	  if (f == NULL)
 	    {
 	      if (where)
-		gfc_error ("Keyword argument %qs at %L is not in "
-			   "the procedure", a->name, &a->expr->where);
+		{
+		  const char *guessed = lookup_arg_fuzzy (a->name, formal);
+		  if (guessed)
+		    gfc_error ("Keyword argument %qs at %L is not in "
+			       "the procedure; did you mean %qs?",
+			       a->name, &a->expr->where, guessed);
+		  else
+		    gfc_error ("Keyword argument %qs at %L is not in "
+			       "the procedure", a->name, &a->expr->where);
+		}
 	      return false;
 	    }
 
@@ -2990,11 +3043,20 @@ compare_actual_formal (gfc_actual_arglist **ap, gfc_formal_arglist *formal,
 			 f->sym->name, actual_size, formal_size,
 			 &a->expr->where);
           else if (where)
-	    gfc_warning (OPT_Wargument_mismatch,
-			 "Actual argument contains too few "
-			 "elements for dummy argument %qs (%lu/%lu) at %L",
-			 f->sym->name, actual_size, formal_size,
-			 &a->expr->where);
+	    {
+	      /* Emit a warning for -std=legacy and an error otherwise. */
+	      if (gfc_option.warn_std == 0)
+	        gfc_warning (OPT_Wargument_mismatch,
+			     "Actual argument contains too few "
+			     "elements for dummy argument %qs (%lu/%lu) "
+			     "at %L", f->sym->name, actual_size,
+			     formal_size, &a->expr->where);
+	      else
+	        gfc_error_now ("Actual argument contains too few "
+			       "elements for dummy argument %qs (%lu/%lu) "
+			       "at %L", f->sym->name, actual_size,
+			       formal_size, &a->expr->where);
+	    }
 	  return false;
 	}
 
@@ -3294,7 +3356,7 @@ argpair;
    order:
     - p->a->expr == NULL
     - p->a->expr->expr_type != EXPR_VARIABLE
-    - growing p->a->expr->symbol.  */
+    - by gfc_symbol pointer value (larger first).  */
 
 static int
 pair_cmp (const void *p1, const void *p2)
@@ -3320,6 +3382,8 @@ pair_cmp (const void *p1, const void *p2)
     }
   if (a2->expr->expr_type != EXPR_VARIABLE)
     return 1;
+  if (a1->expr->symtree->n.sym > a2->expr->symtree->n.sym)
+    return -1;
   return a1->expr->symtree->n.sym < a2->expr->symtree->n.sym;
 }
 
@@ -3540,8 +3604,15 @@ gfc_procedure_use (gfc_symbol *sym, gfc_actual_arglist **ap, locus *where)
     {
       if (sym->ns->has_implicit_none_export && sym->attr.proc == PROC_UNKNOWN)
 	{
-	  gfc_error ("Procedure %qs called at %L is not explicitly declared",
-		     sym->name, where);
+	  const char *guessed
+	    = gfc_lookup_function_fuzzy (sym->name, sym->ns->sym_root);
+	  if (guessed)
+	    gfc_error ("Procedure %qs called at %L is not explicitly declared"
+		       "; did you mean %qs?",
+		       sym->name, where, guessed);
+	  else
+	    gfc_error ("Procedure %qs called at %L is not explicitly declared",
+		       sym->name, where);
 	  return false;
 	}
       if (warn_implicit_interface)

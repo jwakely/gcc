@@ -1,7 +1,7 @@
 # configure.ac for GCC
 # Process this file with autoconf to generate a configuration script.
 
-# Copyright (C) 1997-2017 Free Software Foundation, Inc.
+# Copyright (C) 1997-2018 Free Software Foundation, Inc.
 
 #This file is part of GCC.
 
@@ -362,7 +362,7 @@ rm -f a.out a.exe b.out
 # Find the native compiler
 AC_PROG_CC
 AC_PROG_CXX
-ACX_PROG_GNAT([-I"$srcdir"/ada])
+ACX_PROG_GNAT([-I"$srcdir"/ada/libgnat])
 
 # Do configure tests with the C++ compiler, since that's what we build with.
 AC_LANG(C++)
@@ -728,10 +728,10 @@ AC_ARG_ENABLE(coverage,
 		 default is noopt])],
 [case "${enableval}" in
   yes|noopt)
-    coverage_flags="-fprofile-arcs -ftest-coverage -frandom-seed=\$@ -O0"
+    coverage_flags="-fprofile-arcs -ftest-coverage -frandom-seed=\$@ -O0 -fkeep-static-functions"
     ;;
   opt)
-    coverage_flags="-fprofile-arcs -ftest-coverage -frandom-seed=\$@ -O2"
+    coverage_flags="-fprofile-arcs -ftest-coverage -frandom-seed=\$@ -O2 -fkeep-static-functions"
     ;;
   no)
     # a.k.a. --disable-coverage
@@ -1442,15 +1442,15 @@ fi
 # --------------------------------------------------------
 
 # Collect build-machine-specific information.
-. ${srcdir}/config.build
+. ${srcdir}/config.build || exit 1
 
 # Collect host-machine-specific information.
-. ${srcdir}/config.host
+. ${srcdir}/config.host || exit 1
 
 target_gtfiles=
 
 # Collect target-machine-specific information.
-. ${srcdir}/config.gcc
+. ${srcdir}/config.gcc || exit 1
 
 extra_objs="${host_extra_objs} ${extra_objs}"
 extra_gcc_objs="${host_extra_gcc_objs} ${extra_gcc_objs}"
@@ -1810,6 +1810,16 @@ AC_ARG_ENABLE(secureplt,
 [AS_HELP_STRING([--enable-secureplt],
 		[enable -msecure-plt by default for PowerPC])],
 [], [])
+
+AC_ARG_ENABLE(mingw-wildcard,
+[AS_HELP_STRING([--enable-mingw-wildcard],
+		[Set whether to expand wildcard on command-line.
+		 Default to platform configuration])],
+[],[enable_mingw_wildcard=platform])
+AS_IF([test x"$enable_mingw_wildcard" != xplatform ],
+      [AC_DEFINE_UNQUOTED(MINGW_DOWILDCARD,
+		 $(test x"$enable_mingw_wildcard" = xno; echo $?),
+		 [Value to set mingw's _dowildcard to.])])
 
 AC_ARG_ENABLE(leading-mingw64-underscores,
   AS_HELP_STRING([--enable-leading-mingw64-underscores],
@@ -2577,15 +2587,25 @@ if test $in_tree_ld != yes ; then
   else
     case "${target}" in
       *-*-solaris2*)
-	# See acinclude.m4 (gcc_SUN_LD_VERSION) for the version number
-	# format.
+	# Solaris 2 ld -V output looks like this for a regular version:
 	#
-	# Don't reuse gcc_gv_sun_ld_vers_* in case a linker other than
-	# /usr/ccs/bin/ld has been configured.
+	# ld: Software Generation Utilities - Solaris Link Editors: 5.11-1.1699
+	#
+	# but test versions add stuff at the end:
+	#
+	# ld: Software Generation Utilities - Solaris Link Editors: 5.11-1.1701:onnv-ab196087-6931056-03/25/10
+	#
+	# In Solaris 11.4, this was changed to
+	#
+	# ld: Solaris ELF Utilities: 11.4-1.3123
+	#
+	# ld and ld.so.1 are guaranteed to be updated in lockstep, so ld version
+	# numbers can be used in ld.so.1 feature checks even if a different
+	# linker is configured.
 	ld_ver=`$gcc_cv_ld -V 2>&1`
-	if echo "$ld_ver" | grep 'Solaris Link Editors' > /dev/null; then
+	if echo "$ld_ver" | $EGREP 'Solaris Link Editors|Solaris ELF Utilities' > /dev/null; then
 	  ld_vers=`echo $ld_ver | sed -n \
-	    -e 's,^.*: 5\.[0-9][0-9]*-\([0-9]\.[0-9][0-9]*\).*$,\1,p'`
+	    -e 's,^.*: \(5\|1[0-9]\)\.[0-9][0-9]*-\([0-9]\.[0-9][0-9]*\).*$,\2,p'`
 	  ld_vers_major=`expr "$ld_vers" : '\([0-9]*\)'`
 	  ld_vers_minor=`expr "$ld_vers" : '[0-9]*\.\([0-9]*\)'`
 	fi
@@ -3559,8 +3579,8 @@ if test $in_tree_ld = yes ; then
   fi
 elif test x$gcc_cv_ld != x; then
   # Check if linker supports -Bstatic/-Bdynamic option
-  if $gcc_cv_ld --help 2>/dev/null | grep -- -Bstatic > /dev/null \
-     && $gcc_cv_ld --help 2>/dev/null | grep -- -Bdynamic > /dev/null; then
+  if $gcc_cv_ld --help 2>&1 | grep -- -Bstatic > /dev/null \
+     && $gcc_cv_ld --help 2>&1 | grep -- -Bdynamic > /dev/null; then
       gcc_cv_ld_static_dynamic=yes
   else
     case "$target" in
@@ -3604,7 +3624,7 @@ if test x"$demangler_in_ld" = xyes; then
     fi
   elif test x$gcc_cv_ld != x -a x"$gnu_ld" = xyes; then
     # Check if the GNU linker supports --demangle option
-    if $gcc_cv_ld --help 2>/dev/null | grep no-demangle > /dev/null; then
+    if $gcc_cv_ld --help 2>&1 | grep no-demangle > /dev/null; then
       gcc_cv_ld_demangle=yes
     fi
   fi
@@ -3806,6 +3826,52 @@ AS_HELP_STRING([--disable-fix-cortex-a53-843419],
       [-mrmw], [.text],,
       [AC_DEFINE(HAVE_AS_AVR_MRMW_OPTION, 1,
 		[Define if your avr assembler supports -mrmw option.])])
+
+    gcc_GAS_CHECK_FEATURE([__gcc_isr pseudo instruction],
+      gcc_cv_as_avr_mgccisr,,
+      [-mgcc-isr], [.text
+      		    __gcc_isr 1
+      		    __gcc_isr 2
+      		    __gcc_isr 0,r24
+      		   ],,
+      [AC_DEFINE(HAVE_AS_AVR_MGCCISR_OPTION, 1,
+		[Define if your avr assembler supports -mgcc-isr option.])])
+
+    # Check how default linker description file implements .rodata for
+    # avrxmega3 (PR21472).  avr-gcc assumes .rodata is *not* loaded to
+    # RAM so avr-gcc skips __do_copy_data for .rodata objects.
+    AC_MSG_CHECKING(binutils for avrxmega3 .rodata support)
+    cat > conftest.s <<EOF
+        .section .rodata,"a",@progbits
+        .global xxvaryy
+    ;; avr-nm should print "... R xxvaryy", not "... D xxvaryy".
+    xxvaryy:
+        .word 1
+EOF
+    rm -f conftest.nm
+    AC_TRY_COMMAND([$gcc_cv_as -mmcu=avrxmega3 conftest.s -o conftest.o])
+    AC_TRY_COMMAND([$gcc_cv_ld -mavrxmega3 conftest.o -o conftest.elf])
+    AC_TRY_COMMAND([$gcc_cv_nm conftest.elf > conftest.nm])
+    if test -s conftest.nm
+    then
+	if grep ' R xxvaryy' conftest.nm > /dev/null; then
+	    AC_MSG_RESULT(yes)
+	    AC_DEFINE(HAVE_LD_AVR_AVRXMEGA3_RODATA_IN_FLASH, 1,
+		[Define if your default avr linker script for avrxmega3 leaves .rodata in flash.])
+	else
+	    AC_MSG_RESULT(no: avrxmega3 .rodata located in RAM)
+	    echo "$as_me: nm output was" >&AS_MESSAGE_LOG_FD
+	    cat conftest.nm >&AS_MESSAGE_LOG_FD
+	    avr_ld_ver="`$gcc_cv_ld -v | sed -e 's:^.* ::'`"
+	    AC_MSG_WARN([[support for avrxmega3 .rodata in flash needs Binutils 2.29 or higher (have $avr_ld_ver)]])
+	fi
+    else
+	AC_MSG_RESULT(test failed)
+	echo "$as_me: failed program was" >&AS_MESSAGE_LOG_FD
+	cat conftest.s >&AS_MESSAGE_LOG_FD
+	AC_MSG_WARN([[see `config.log' for details]])
+    fi
+    rm -f conftest.s conftest.o conftest.elf conftest.nm
     ;;
 
   cris-*-*)
@@ -3957,6 +4023,18 @@ foo:
       [AC_DEFINE(HAVE_AS_SPARC5_VIS4, 1,
                 [Define if your assembler supports SPARC5 and VIS 4.0 instructions.])])
 
+    gcc_GAS_CHECK_FEATURE([SPARC6 instructions],
+      gcc_cv_as_sparc_sparc6,,
+      [-xarch=sparc6],
+      [.text
+       .register %g2, #scratch
+       .register %g3, #scratch
+       .align 4
+       rd %entropy, %g1
+       fpsll64x %f0, %f2, %f4],,
+      [AC_DEFINE(HAVE_AS_SPARC6, 1,
+                [Define if your assembler supports SPARC6 instructions.])])
+
     gcc_GAS_CHECK_FEATURE([LEON instructions],
       gcc_cv_as_sparc_leon,,
       [-Aleon],
@@ -4034,6 +4112,11 @@ foo:	nop
 	fi
 	;;
     esac
+
+    gcc_GAS_CHECK_FEATURE([-xbrace_comment], gcc_cv_as_ix86_xbrace_comment,,
+      [-xbrace_comment=no], [.text],,
+      [AC_DEFINE(HAVE_AS_XBRACE_COMMENT_OPTION, 1,
+		[Define if your assembler supports -xbrace_comment option.])])
 
     # Test if the assembler supports the section flag 'e' for specifying
     # an excluded section.
@@ -4742,9 +4825,9 @@ esac
 # ??? Once 2.11 is released, probably need to add first known working
 # version to the per-target configury.
 case "$cpu_type" in
-  aarch64 | alpha | arm | avr | bfin | cris | i386 | m32c | m68k | microblaze \
-  | mips | nios2 | pa | riscv | rs6000 | score | sparc | spu | tilegx \
-  | tilepro | visium | xstormy16 | xtensa)
+  aarch64 | alpha | arc | arm | avr | bfin | cris | i386 | m32c | m68k \
+  | microblaze | mips | nios2 | pa | riscv | rs6000 | score | sparc | spu \
+  | tilegx | tilepro | visium | xstormy16 | xtensa)
     insn="nop"
     ;;
   ia64 | s390)
@@ -4939,7 +5022,7 @@ if test $in_tree_ld = yes ; then
 elif test x$gcc_cv_ld != x; then
   if echo "$ld_ver" | grep GNU > /dev/null; then
     # Check if linker supports --eh-frame-hdr option
-    if $gcc_cv_ld --help 2>/dev/null | grep eh-frame-hdr > /dev/null; then
+    if $gcc_cv_ld --help 2>&1 | grep eh-frame-hdr > /dev/null; then
       gcc_cv_ld_eh_frame_hdr=yes
     fi
   else
@@ -5010,7 +5093,7 @@ if test $in_tree_ld = yes ; then
   fi
 elif test x$gcc_cv_ld != x; then
   # Check if linker supports -pie option
-  if $gcc_cv_ld --help 2>/dev/null | grep -- -pie > /dev/null; then
+  if $gcc_cv_ld --help 2>&1 | grep -- -pie > /dev/null; then
     gcc_cv_ld_pie=yes
     case "$target" in
       *-*-solaris2*)
@@ -5023,7 +5106,7 @@ elif test x$gcc_cv_ld != x; then
   else
     case "$target" in
       *-*-solaris2.1[[1-9]]*)
-	# Solaris 11.x and Solaris 12 added PIE support.
+	# Solaris 11.3 added PIE support.
 	if $gcc_cv_ld -z help 2>&1 | grep -- type.*pie > /dev/null; then
 	  gcc_cv_ld_pie=yes
 	fi
@@ -5336,19 +5419,19 @@ if test $in_tree_ld = yes ; then
     gcc_cv_ld_as_needed=yes
   fi
 elif test x$gcc_cv_ld != x; then
-	# Check if linker supports --as-needed and --no-as-needed options
-	if $gcc_cv_ld --help 2>/dev/null | grep as-needed > /dev/null; then
-		gcc_cv_ld_as_needed=yes
-	else
-	  case "$target" in
-	    # Solaris 2 ld always supports -z ignore/-z record.
-	    *-*-solaris2*)
-	      gcc_cv_ld_as_needed=yes
-	      gcc_cv_ld_as_needed_option="-z ignore"
-	      gcc_cv_ld_no_as_needed_option="-z record"
-	      ;;
-	  esac
-	fi
+  # Check if linker supports --as-needed and --no-as-needed options
+  if $gcc_cv_ld --help 2>&1 | grep as-needed > /dev/null; then
+    gcc_cv_ld_as_needed=yes
+  fi
+  case "$target:$gnu_ld" in
+    *-*-solaris2*:no)
+      # Solaris 2 ld always supports -z ignore/-z record.  Prefer the native
+      # forms.
+      gcc_cv_ld_as_needed=yes
+      gcc_cv_ld_as_needed_option="-z ignore"
+      gcc_cv_ld_no_as_needed_option="-z record"
+      ;;
+  esac
 fi
 # --as-needed/-z ignore can only be used if libgcc_s.so.1 uses
 # dl_iterate_phdr, i.e. since Solaris 11.
@@ -5588,7 +5671,7 @@ AC_CACHE_CHECK(linker --build-id support,
       gcc_cv_ld_buildid=yes
     fi
   elif test x$gcc_cv_ld != x; then
-    if $gcc_cv_ld --help 2>/dev/null | grep build-id > /dev/null; then
+    if $gcc_cv_ld --help 2>&1 | grep build-id > /dev/null; then
       gcc_cv_ld_buildid=yes
     fi
   fi])
@@ -5643,7 +5726,7 @@ AC_CACHE_CHECK(linker --sysroot support,
         gcc_cv_ld_sysroot=yes
       fi
   elif test x$gcc_cv_ld != x; then 
-    if $gcc_cv_ld --help 2>/dev/null | grep sysroot > /dev/null; then
+    if $gcc_cv_ld --help 2>&1 | grep sysroot > /dev/null; then
       gcc_cv_ld_sysroot=yes
     fi
   fi])
@@ -5683,10 +5766,25 @@ if test x$gcc_cv_solaris_crts = xyes; then
   	    [Define if the system-provided CRTs are present on Solaris.])
 fi
 
+AC_ARG_ENABLE(libssp,
+[AS_HELP_STRING([--enable-libssp], [enable linking against libssp])],
+[case "${enableval}" in
+  yes|no)
+    ;;
+  *)
+    AC_MSG_ERROR([unknown libssp setting $enableval])
+    ;;
+esac], [])
+
 # Test for stack protector support in target C library.
 AC_CACHE_CHECK(__stack_chk_fail in target C library,
-      gcc_cv_libc_provides_ssp,
-      [gcc_cv_libc_provides_ssp=no
+  gcc_cv_libc_provides_ssp,
+  [gcc_cv_libc_provides_ssp=no
+  if test "x$enable_libssp" = "xno"; then
+    gcc_cv_libc_provides_ssp=yes
+  elif test "x$enable_libssp" = "xyes"; then
+    gcc_cv_libc_provides_ssp=no
+  else
     case "$target" in
        *-*-musl*)
 	 # All versions of musl provide stack protector
@@ -5723,8 +5821,9 @@ AC_CACHE_CHECK(__stack_chk_fail in target C library,
 	 AC_CHECK_FUNC(__stack_chk_fail,[gcc_cv_libc_provides_ssp=yes],
            [echo "no __stack_chk_fail on this target"])
         ;;
-  *) gcc_cv_libc_provides_ssp=no ;;
-    esac])
+       *) gcc_cv_libc_provides_ssp=no ;;
+    esac
+  fi])
 
 if test x$gcc_cv_libc_provides_ssp = xyes; then
   AC_DEFINE(TARGET_LIBC_PROVIDES_SSP, 1,
@@ -6317,7 +6416,7 @@ if test x"$ld_is_gold" = xno; then
     fi
   elif test x$gcc_cv_ld != x; then
     # Check if linker supports -a bndplt option
-    if $gcc_cv_ld --help 2>/dev/null | grep -- '-z bndplt' > /dev/null; then
+    if $gcc_cv_ld --help 2>&1 | grep -- '-z bndplt' > /dev/null; then
       ld_bndplt_support=yes
     fi
   fi
@@ -6338,7 +6437,7 @@ if test x"$ld_is_gold" = xno; then
     fi
   elif test x$gcc_cv_ld != x; then
     # Check if linker supports --push-state/--pop-state options
-    if $gcc_cv_ld --help 2>/dev/null | grep -- '--push-state' > /dev/null; then
+    if $gcc_cv_ld --help 2>&1 | grep -- '--push-state' > /dev/null; then
       ld_pushpopstate_support=yes
     fi
   fi

@@ -1,8 +1,8 @@
-// { dg-options "-g -O0 -std=gnu++1z" }
-// { dg-do run { target c++1z } }
+// { dg-options "-g -O0 -std=gnu++17" }
+// { dg-do run { target c++17 } }
 // { dg-skip-if "" { *-*-* } { "-D_GLIBCXX_PROFILE" } }
 
-// Copyright (C) 2014-2017 Free Software Foundation, Inc.
+// Copyright (C) 2014-2018 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the

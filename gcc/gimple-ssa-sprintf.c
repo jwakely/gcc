@@ -1,4 +1,4 @@
-/* Copyright (C) 2016-2017 Free Software Foundation, Inc.
+/* Copyright (C) 2016-2018 Free Software Foundation, Inc.
    Contributed by Martin Sebor <msebor@redhat.com>.
 
 This file is part of GCC.
@@ -79,6 +79,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "toplev.h"
 #include "substring-locations.h"
 #include "diagnostic.h"
+#include "domwalk.h"
 
 /* The likely worst case value of MB_LEN_MAX for the target, large enough
    for UTF-8.  Ideally, this would be obtained by a target hook if it were
@@ -113,6 +114,19 @@ static int warn_level;
 
 struct format_result;
 
+class sprintf_dom_walker : public dom_walker
+{
+ public:
+  sprintf_dom_walker () : dom_walker (CDI_DOMINATORS) {}
+  ~sprintf_dom_walker () {}
+
+  edge before_dom_children (basic_block) FINAL OVERRIDE;
+  bool handle_gimple_call (gimple_stmt_iterator *);
+
+  struct call_info;
+  bool compute_format_length (call_info &, format_result *);
+};
+
 class pass_sprintf_length : public gimple_opt_pass
 {
   bool fold_return_value;
@@ -135,10 +149,6 @@ public:
       fold_return_value = param;
     }
 
-  bool handle_gimple_call (gimple_stmt_iterator *);
-
-  struct call_info;
-  bool compute_format_length (call_info &, format_result *);
 };
 
 bool
@@ -526,7 +536,11 @@ get_format_string (tree format, location_t *ploc)
   if (TREE_CODE (format) != STRING_CST)
     return NULL;
 
-  if (TYPE_MAIN_VARIANT (TREE_TYPE (TREE_TYPE (format))) != char_type_node)
+  tree type = TREE_TYPE (format);
+
+  scalar_int_mode char_mode;
+  if (!is_int_mode (TYPE_MODE (TREE_TYPE (type)), &char_mode)
+      || GET_MODE_SIZE (char_mode) != 1)
     {
       /* Wide format string.  */
       return NULL;
@@ -579,7 +593,7 @@ get_format_string (tree format, location_t *ploc)
 /* For convenience and brevity.  */
 
 static bool
-  (* const fmtwarn) (const substring_loc &, const source_range *,
+  (* const fmtwarn) (const substring_loc &, location_t,
 		     const char *, int, const char *, ...)
   = format_warning_at_substring;
 
@@ -972,7 +986,7 @@ bytes_remaining (unsigned HOST_WIDE_INT navail, const format_result &res)
 
 /* Description of a call to a formatted function.  */
 
-struct pass_sprintf_length::call_info
+struct sprintf_dom_walker::call_info
 {
   /* Function call statement.  */
   gimple *callstmt;
@@ -1404,7 +1418,7 @@ format_integer (const directive &dir, tree arg)
 
       return res;
     }
-  else if (TREE_CODE (TREE_TYPE (arg)) == INTEGER_TYPE
+  else if (INTEGRAL_TYPE_P (TREE_TYPE (arg))
 	   || TREE_CODE (TREE_TYPE (arg)) == POINTER_TYPE)
     /* Determine the type of the provided non-constant argument.  */
     argtype = TREE_TYPE (arg);
@@ -1424,7 +1438,7 @@ format_integer (const directive &dir, tree arg)
 
   if (arg
       && TREE_CODE (arg) == SSA_NAME
-      && TREE_CODE (argtype) == INTEGER_TYPE)
+      && INTEGRAL_TYPE_P (argtype))
     {
       /* Try to determine the range of values of the integer argument
 	 (range information is not available for pointers).  */
@@ -1469,7 +1483,7 @@ format_integer (const directive &dir, tree arg)
 	      if (code == NOP_EXPR)
 		{
 		  tree type = TREE_TYPE (gimple_assign_rhs1 (def));
-		  if (TREE_CODE (type) == INTEGER_TYPE
+		  if (INTEGRAL_TYPE_P (type)
 		      || TREE_CODE (type) == POINTER_TYPE)
 		    argtype = type;
 		}
@@ -1871,6 +1885,8 @@ static fmtresult
 format_floating (const directive &dir, tree arg)
 {
   HOST_WIDE_INT prec[] = { dir.prec[0], dir.prec[1] };
+  tree type = (dir.modifier == FMT_LEN_L || dir.modifier == FMT_LEN_ll
+	       ? long_double_type_node : double_type_node);
 
   /* For an indeterminate precision the lower bound must be assumed
      to be zero.  */
@@ -1878,10 +1894,6 @@ format_floating (const directive &dir, tree arg)
     {
       /* Get the number of fractional decimal digits needed to represent
 	 the argument without a loss of accuracy.  */
-      tree type = arg ? TREE_TYPE (arg) :
-	(dir.modifier == FMT_LEN_L || dir.modifier == FMT_LEN_ll
-	 ? long_double_type_node : double_type_node);
-
       unsigned fmtprec
 	= REAL_MODE_FORMAT (TYPE_MODE (type))->p;
 
@@ -1932,7 +1944,9 @@ format_floating (const directive &dir, tree arg)
 	}
     }
 
-  if (!arg || TREE_CODE (arg) != REAL_CST)
+  if (!arg
+      || TREE_CODE (arg) != REAL_CST
+      || !useless_type_conversion_p (type, TREE_TYPE (arg)))
     return format_floating (dir, prec);
 
   /* The minimum and maximum number of bytes produced by the directive.  */
@@ -2344,7 +2358,7 @@ format_plain (const directive &dir, tree)
    should be diagnosed given the AVAILable space in the destination.  */
 
 static bool
-should_warn_p (const pass_sprintf_length::call_info &info,
+should_warn_p (const sprintf_dom_walker::call_info &info,
 	       const result_range &avail, const result_range &result)
 {
   if (result.max <= avail.min)
@@ -2414,8 +2428,8 @@ should_warn_p (const pass_sprintf_length::call_info &info,
    Return true if a warning has been issued.  */
 
 static bool
-maybe_warn (substring_loc &dirloc, source_range *pargrange,
-	    const pass_sprintf_length::call_info &info,
+maybe_warn (substring_loc &dirloc, location_t argloc,
+	    const sprintf_dom_walker::call_info &info,
 	    const result_range &avail_range, const result_range &res,
 	    const directive &dir)
 {
@@ -2452,7 +2466,8 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 	  /* For plain character directives (i.e., the format string itself)
 	     but not others, point the caret at the first character that's
 	     past the end of the destination.  */
-	  dirloc.set_caret_index (dirloc.get_caret_idx () + navail);
+	  if (navail < dir.len)
+	    dirloc.set_caret_index (dirloc.get_caret_idx () + navail);
 	}
 
       if (*dir.beg == '\0')
@@ -2472,8 +2487,8 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 		  : G_("%qE writing a terminating nul past the end "
 		       "of the destination")));
 
-	  return fmtwarn (dirloc, NULL, NULL, info.warnopt (), fmtstr,
-			  info.func);
+	  return fmtwarn (dirloc, UNKNOWN_LOCATION, NULL, info.warnopt (),
+			  fmtstr, info.func);
 	}
 
       if (res.min == res.max)
@@ -2496,7 +2511,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 			  "%wu bytes into a region of size %wu"))
 		  : G_("%<%.*s%> directive writing %wu bytes "
 		       "into a region of size %wu")));
-	  return fmtwarn (dirloc, pargrange, NULL,
+	  return fmtwarn (dirloc, argloc, NULL,
 			  info.warnopt (), fmtstr, dir.len,
 			  target_to_host (hostdir, sizeof hostdir, dir.beg),
 			  res.min, navail);
@@ -2513,7 +2528,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 		       "up to %wu bytes into a region of size %wu"))
 	       : G_("%<%.*s%> directive writing up to %wu bytes "
 		    "into a region of size %wu"));
-	  return fmtwarn (dirloc, pargrange, NULL,
+	  return fmtwarn (dirloc, argloc, NULL,
 			  info.warnopt (), fmtstr, dir.len,
 			  target_to_host (hostdir, sizeof hostdir, dir.beg),
 			  res.max, navail);
@@ -2533,7 +2548,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 		       "likely %wu or more bytes into a region of size %wu"))
 	       : G_("%<%.*s%> directive writing likely %wu or more bytes "
 		    "into a region of size %wu"));
-	  return fmtwarn (dirloc, pargrange, NULL,
+	  return fmtwarn (dirloc, argloc, NULL,
 			  info.warnopt (), fmtstr, dir.len,
 			  target_to_host (hostdir, sizeof hostdir, dir.beg),
 			  res.likely, navail);
@@ -2550,7 +2565,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 		       "between %wu and %wu bytes into a region of size %wu"))
 	       : G_("%<%.*s%> directive writing between %wu and "
 		    "%wu bytes into a region of size %wu"));
-	  return fmtwarn (dirloc, pargrange, NULL,
+	  return fmtwarn (dirloc, argloc, NULL,
 			  info.warnopt (), fmtstr, dir.len,
 			  target_to_host (hostdir, sizeof hostdir, dir.beg),
 			  res.min, res.max, navail);
@@ -2565,7 +2580,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 		   "%wu or more bytes into a region of size %wu"))
 	   : G_("%<%.*s%> directive writing %wu or more bytes "
 		"into a region of size %wu"));
-      return fmtwarn (dirloc, pargrange, NULL,
+      return fmtwarn (dirloc, argloc, NULL,
 		      info.warnopt (), fmtstr, dir.len,
 		      target_to_host (hostdir, sizeof hostdir, dir.beg),
 		      res.min, navail);
@@ -2580,7 +2595,8 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
       /* For plain character directives (i.e., the format string itself)
 	 but not others, point the caret at the first character that's
 	 past the end of the destination.  */
-      dirloc.set_caret_index (dirloc.get_caret_idx () + navail);
+      if (navail < dir.len)
+	dirloc.set_caret_index (dirloc.get_caret_idx () + navail);
     }
 
   if (*dir.beg == '\0')
@@ -2599,7 +2615,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 	      : G_("%qE writing a terminating nul past the end "
 		   "of the destination")));
 
-      return fmtwarn (dirloc, NULL, NULL, info.warnopt (), fmtstr,
+      return fmtwarn (dirloc, UNKNOWN_LOCATION, NULL, info.warnopt (), fmtstr,
 		      info.func);
     }
 
@@ -2624,7 +2640,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 	      : G_("%<%.*s%> directive writing %wu bytes "
 		   "into a region of size between %wu and %wu")));
 
-      return fmtwarn (dirloc, pargrange, NULL,
+      return fmtwarn (dirloc, argloc, NULL,
 		      info.warnopt (), fmtstr, dir.len,
 		      target_to_host (hostdir, sizeof hostdir, dir.beg),
 		      res.min, avail_range.min, avail_range.max);
@@ -2643,7 +2659,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 		   "%wu and %wu"))
 	   : G_("%<%.*s%> directive writing up to %wu bytes "
 		"into a region of size between %wu and %wu"));
-      return fmtwarn (dirloc, pargrange, NULL,
+      return fmtwarn (dirloc, argloc, NULL,
 		      info.warnopt (), fmtstr, dir.len,
 		      target_to_host (hostdir, sizeof hostdir, dir.beg),
 		      res.max, avail_range.min, avail_range.max);
@@ -2665,7 +2681,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 		   "%wu and %wu"))
 	   : G_("%<%.*s%> directive writing likely %wu or more bytes "
 		"into a region of size between %wu and %wu"));
-      return fmtwarn (dirloc, pargrange, NULL,
+      return fmtwarn (dirloc, argloc, NULL,
 		      info.warnopt (), fmtstr, dir.len,
 		      target_to_host (hostdir, sizeof hostdir, dir.beg),
 		      res.likely, avail_range.min, avail_range.max);
@@ -2684,7 +2700,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 		   "between %wu and %wu"))
 	   : G_("%<%.*s%> directive writing between %wu and "
 		"%wu bytes into a region of size between %wu and %wu"));
-      return fmtwarn (dirloc, pargrange, NULL,
+      return fmtwarn (dirloc, argloc, NULL,
 		      info.warnopt (), fmtstr, dir.len,
 		      target_to_host (hostdir, sizeof hostdir, dir.beg),
 		      res.min, res.max, avail_range.min, avail_range.max);
@@ -2701,7 +2717,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
 	       "%wu and %wu"))
        : G_("%<%.*s%> directive writing %wu or more bytes "
 	    "into a region of size between %wu and %wu"));
-  return fmtwarn (dirloc, pargrange, NULL,
+  return fmtwarn (dirloc, argloc, NULL,
 		  info.warnopt (), fmtstr, dir.len,
 		  target_to_host (hostdir, sizeof hostdir, dir.beg),
 		  res.min, avail_range.min, avail_range.max);
@@ -2712,7 +2728,7 @@ maybe_warn (substring_loc &dirloc, source_range *pargrange,
    in *RES.  Return true if the directive has been handled.  */
 
 static bool
-format_directive (const pass_sprintf_length::call_info &info,
+format_directive (const sprintf_dom_walker::call_info &info,
 		  format_result *res, const directive &dir)
 {
   /* Offset of the beginning of the directive from the beginning
@@ -2726,17 +2742,11 @@ format_directive (const pass_sprintf_length::call_info &info,
   substring_loc dirloc (info.fmtloc, TREE_TYPE (info.format),
 			offset, start, length);
 
-  /* Also create a location range for the argument if possible.
+  /* Also get the location of the argument if possible.
      This doesn't work for integer literals or function calls.  */
-  source_range argrange;
-  source_range *pargrange;
-  if (dir.arg && CAN_HAVE_LOCATION_P (dir.arg))
-    {
-      argrange = EXPR_LOCATION_RANGE (dir.arg);
-      pargrange = &argrange;
-    }
-  else
-    pargrange = NULL;
+  location_t argloc = UNKNOWN_LOCATION;
+  if (dir.arg)
+    argloc = EXPR_LOCATION (dir.arg);
 
   /* Bail when there is no function to compute the output length,
      or when minimum length checking has been disabled.   */
@@ -2793,7 +2803,7 @@ format_directive (const pass_sprintf_length::call_info &info,
 
   if (fmtres.nullp)
     {
-      fmtwarn (dirloc, pargrange, NULL, info.warnopt (),
+      fmtwarn (dirloc, argloc, NULL, info.warnopt (),
 	       "%<%.*s%> directive argument is null",
 	       dirlen, target_to_host (hostdir, sizeof hostdir, dir.beg));
 
@@ -2812,7 +2822,7 @@ format_directive (const pass_sprintf_length::call_info &info,
   bool warned = res->warned;
 
   if (!warned)
-    warned = maybe_warn (dirloc, pargrange, info, avail_range,
+    warned = maybe_warn (dirloc, argloc, info, avail_range,
 			 fmtres.range, dir);
 
   /* Bump up the total maximum if it isn't too big.  */
@@ -2846,7 +2856,7 @@ format_directive (const pass_sprintf_length::call_info &info,
 
   if (!warned
       /* Only warn at level 2.  */
-      && 1 < warn_level
+      && warn_level > 1
       && (!minunder4k
 	  || (!maxunder4k && fmtres.range.max < HOST_WIDE_INT_MAX)))
     {
@@ -2858,7 +2868,7 @@ format_directive (const pass_sprintf_length::call_info &info,
 	 (like Glibc does under some conditions).  */
 
       if (fmtres.range.min == fmtres.range.max)
-	warned = fmtwarn (dirloc, pargrange, NULL,
+	warned = fmtwarn (dirloc, argloc, NULL,
 			  info.warnopt (),
 			  "%<%.*s%> directive output of %wu bytes exceeds "
 			  "minimum required size of 4095",
@@ -2874,7 +2884,7 @@ format_directive (const pass_sprintf_length::call_info &info,
 	       : G_("%<%.*s%> directive output between %wu and %wu "
 		    "bytes exceeds minimum required size of 4095"));
 
-	  warned = fmtwarn (dirloc, pargrange, NULL,
+	  warned = fmtwarn (dirloc, argloc, NULL,
 			    info.warnopt (), fmtstr, dirlen,
 			    target_to_host (hostdir, sizeof hostdir, dir.beg),
 			    fmtres.range.min, fmtres.range.max);
@@ -2894,7 +2904,7 @@ format_directive (const pass_sprintf_length::call_info &info,
       /* Warn for the likely output size at level 1.  */
       && (likelyximax
 	  /* But only warn for the maximum at level 2.  */
-	  || (1 < warn_level
+	  || (warn_level > 1
 	      && maxximax
 	      && fmtres.range.max < HOST_WIDE_INT_MAX)))
     {
@@ -2902,7 +2912,7 @@ format_directive (const pass_sprintf_length::call_info &info,
 	 to exceed INT_MAX bytes.  */
 
       if (fmtres.range.min == fmtres.range.max)
-	warned = fmtwarn (dirloc, pargrange, NULL, info.warnopt (),
+	warned = fmtwarn (dirloc, argloc, NULL, info.warnopt (),
 			  "%<%.*s%> directive output of %wu bytes causes "
 			  "result to exceed %<INT_MAX%>",
 			  dirlen,
@@ -2916,7 +2926,7 @@ format_directive (const pass_sprintf_length::call_info &info,
 		     "bytes causes result to exceed %<INT_MAX%>")
 	       : G_ ("%<%.*s%> directive output between %wu and %wu "
 		     "bytes may cause result to exceed %<INT_MAX%>"));
-	  warned = fmtwarn (dirloc, pargrange, NULL,
+	  warned = fmtwarn (dirloc, argloc, NULL,
 			    info.warnopt (), fmtstr, dirlen,
 			    target_to_host (hostdir, sizeof hostdir, dir.beg),
 			    fmtres.range.min, fmtres.range.max);
@@ -2925,13 +2935,15 @@ format_directive (const pass_sprintf_length::call_info &info,
 
   if (warned && fmtres.range.min < fmtres.range.likely
       && fmtres.range.likely < fmtres.range.max)
-    {
-      inform (info.fmtloc,
-	      (1 == fmtres.range.likely
-	       ? G_("assuming directive output of %wu byte")
-	       : G_("assuming directive output of %wu bytes")),
+    /* Some languages have special plural rules even for large values,
+       but it is periodic with period of 10, 100, 1000 etc.  */
+    inform_n (info.fmtloc,
+	      fmtres.range.likely > INT_MAX
+	      ? (fmtres.range.likely % 1000000) + 1000000
+	      : fmtres.range.likely,
+	      "assuming directive output of %wu byte",
+	      "assuming directive output of %wu bytes",
 	      fmtres.range.likely);
-    }
 
   if (warned && fmtres.argmin)
     {
@@ -2983,16 +2995,16 @@ format_directive (const pass_sprintf_length::call_info &info,
 
   if (dump_file && *dir.beg)
     {
-      fprintf (dump_file, "    Result: %lli, %lli, %lli, %lli "
-	       "(%lli, %lli, %lli, %lli)\n",
-	       (long long)fmtres.range.min,
-	       (long long)fmtres.range.likely,
-	       (long long)fmtres.range.max,
-	       (long long)fmtres.range.unlikely,
-	       (long long)res->range.min,
-	       (long long)res->range.likely,
-	       (long long)res->range.max,
-	       (long long)res->range.unlikely);
+      fprintf (dump_file,
+	       "    Result: "
+	       HOST_WIDE_INT_PRINT_DEC ", " HOST_WIDE_INT_PRINT_DEC ", "
+	       HOST_WIDE_INT_PRINT_DEC ", " HOST_WIDE_INT_PRINT_DEC " ("
+	       HOST_WIDE_INT_PRINT_DEC ", " HOST_WIDE_INT_PRINT_DEC ", "
+	       HOST_WIDE_INT_PRINT_DEC ", " HOST_WIDE_INT_PRINT_DEC ")\n",
+	       fmtres.range.min, fmtres.range.likely,
+	       fmtres.range.max, fmtres.range.unlikely,
+	       res->range.min, res->range.likely,
+	       res->range.max, res->range.unlikely);
     }
 
   return true;
@@ -3006,7 +3018,7 @@ format_directive (const pass_sprintf_length::call_info &info,
    the directive.  */
 
 static size_t
-parse_directive (pass_sprintf_length::call_info &info,
+parse_directive (sprintf_dom_walker::call_info &info,
 		 directive &dir, format_result *res,
 		 const char *str, unsigned *argno)
 {
@@ -3023,11 +3035,12 @@ parse_directive (pass_sprintf_length::call_info &info,
 
       if (dump_file)
 	{
-	  fprintf (dump_file, "  Directive %u at offset %llu: \"%.*s\", "
-		   "length = %llu\n",
+	  fprintf (dump_file, "  Directive %u at offset "
+		   HOST_WIDE_INT_PRINT_UNSIGNED ": \"%.*s\", "
+		   "length = " HOST_WIDE_INT_PRINT_UNSIGNED "\n",
 		   dir.dirno,
-		   (unsigned long long)(size_t)(dir.beg - info.fmtstr),
-		   (int)dir.len, dir.beg, (unsigned long long)dir.len);
+		   (unsigned HOST_WIDE_INT)(size_t)(dir.beg - info.fmtstr),
+		   (int)dir.len, dir.beg, (unsigned HOST_WIDE_INT) dir.len);
 	}
 
       return len - !*str;
@@ -3347,7 +3360,7 @@ parse_directive (pass_sprintf_length::call_info &info,
 	  substring_loc dirloc (info.fmtloc, TREE_TYPE (info.format),
 				caret, begin, end);
 
-	  fmtwarn (dirloc, NULL, NULL,
+	  fmtwarn (dirloc, UNKNOWN_LOCATION, NULL,
 		   info.warnopt (), "%<%.*s%> directive width out of range",
 		   dir.len, target_to_host (hostdir, sizeof hostdir, dir.beg));
 	}
@@ -3381,7 +3394,7 @@ parse_directive (pass_sprintf_length::call_info &info,
 	  substring_loc dirloc (info.fmtloc, TREE_TYPE (info.format),
 				caret, begin, end);
 
-	  fmtwarn (dirloc, NULL, NULL,
+	  fmtwarn (dirloc, UNKNOWN_LOCATION, NULL,
 		   info.warnopt (), "%<%.*s%> directive precision out of range",
 		   dir.len, target_to_host (hostdir, sizeof hostdir, dir.beg));
 	}
@@ -3399,25 +3412,34 @@ parse_directive (pass_sprintf_length::call_info &info,
 
   if (dump_file)
     {
-      fprintf (dump_file, "  Directive %u at offset %llu: \"%.*s\"",
-	       dir.dirno, (unsigned long long)(size_t)(dir.beg - info.fmtstr),
+      fprintf (dump_file,
+	       "  Directive %u at offset " HOST_WIDE_INT_PRINT_UNSIGNED
+	       ": \"%.*s\"",
+	       dir.dirno,
+	       (unsigned HOST_WIDE_INT)(size_t)(dir.beg - info.fmtstr),
 	       (int)dir.len, dir.beg);
       if (star_width)
 	{
 	  if (dir.width[0] == dir.width[1])
-	    fprintf (dump_file, ", width = %lli", (long long)dir.width[0]);
+	    fprintf (dump_file, ", width = " HOST_WIDE_INT_PRINT_DEC,
+		     dir.width[0]);
 	  else
-	    fprintf (dump_file, ", width in range [%lli, %lli]",
-		     (long long)dir.width[0], (long long)dir.width[1]);
+	    fprintf (dump_file,
+		     ", width in range [" HOST_WIDE_INT_PRINT_DEC
+		     ", " HOST_WIDE_INT_PRINT_DEC "]",
+		     dir.width[0], dir.width[1]);
 	}
 
       if (star_precision)
 	{
 	  if (dir.prec[0] == dir.prec[1])
-	    fprintf (dump_file, ", precision = %lli", (long long)dir.prec[0]);
+	    fprintf (dump_file, ", precision = " HOST_WIDE_INT_PRINT_DEC,
+		     dir.prec[0]);
 	  else
-	    fprintf (dump_file, ", precision in range [%lli, %lli]",
-		     (long long)dir.prec[0], (long long)dir.prec[1]);
+	    fprintf (dump_file,
+		     ", precision in range [" HOST_WIDE_INT_PRINT_DEC
+		     HOST_WIDE_INT_PRINT_DEC "]",
+		     dir.prec[0], dir.prec[1]);
 	}
       fputc ('\n', dump_file);
     }
@@ -3433,7 +3455,7 @@ parse_directive (pass_sprintf_length::call_info &info,
    that caused the processing to be terminated early).  */
 
 bool
-pass_sprintf_length::compute_format_length (call_info &info,
+sprintf_dom_walker::compute_format_length (call_info &info,
 					    format_result *res)
 {
   if (dump_file)
@@ -3443,8 +3465,10 @@ pass_sprintf_length::compute_format_length (call_info &info,
 	       LOCATION_FILE (callloc), LOCATION_LINE (callloc));
       print_generic_expr (dump_file, info.func, dump_flags);
 
-      fprintf (dump_file, ": objsize = %llu, fmtstr = \"%s\"\n",
-	       (unsigned long long)info.objsize, info.fmtstr);
+      fprintf (dump_file,
+	       ": objsize = " HOST_WIDE_INT_PRINT_UNSIGNED
+	       ", fmtstr = \"%s\"\n",
+	       info.objsize, info.fmtstr);
     }
 
   /* Reset the minimum and maximum byte counters.  */
@@ -3511,6 +3535,60 @@ get_destination_size (tree dest)
   return HOST_WIDE_INT_M1U;
 }
 
+/* Return true if the call described by INFO with result RES safe to
+   optimize (i.e., no undefined behavior), and set RETVAL to the range
+   of its return values.  */
+
+static bool
+is_call_safe (const sprintf_dom_walker::call_info &info,
+	      const format_result &res, bool under4k,
+	      unsigned HOST_WIDE_INT retval[2])
+{
+  if (under4k && !res.under4k)
+    return false;
+
+  /* The minimum return value.  */
+  retval[0] = res.range.min;
+
+  /* The maximum return value is in most cases bounded by RES.RANGE.MAX
+     but in cases involving multibyte characters could be as large as
+     RES.RANGE.UNLIKELY.  */
+  retval[1]
+    = res.range.unlikely < res.range.max ? res.range.max : res.range.unlikely;
+
+  /* Adjust the number of bytes which includes the terminating nul
+     to reflect the return value of the function which does not.
+     Because the valid range of the function is [INT_MIN, INT_MAX],
+     a valid range before the adjustment below is [0, INT_MAX + 1]
+     (the functions only return negative values on error or undefined
+     behavior).  */
+  if (retval[0] <= target_int_max () + 1)
+    --retval[0];
+  if (retval[1] <= target_int_max () + 1)
+    --retval[1];
+
+  /* Avoid the return value optimization when the behavior of the call
+     is undefined either because any directive may have produced 4K or
+     more of output, or the return value exceeds INT_MAX, or because
+     the output overflows the destination object (but leave it enabled
+     when the function is bounded because then the behavior is well-
+     defined).  */
+  if (retval[0] == retval[1]
+      && (info.bounded || retval[0] < info.objsize)
+      && retval[0] <= target_int_max ())
+    return true;
+
+  if ((info.bounded || retval[1] < info.objsize)
+      && (retval[0] < target_int_max ()
+	  && retval[1] < target_int_max ()))
+    return true;
+
+  if (!under4k && (info.bounded || retval[0] < info.objsize))
+    return true;
+
+  return false;
+}
+
 /* Given a suitable result RES of a call to a formatted output function
    described by INFO, substitute the result for the return value of
    the call.  The result is suitable if the number of bytes it represents
@@ -3521,7 +3599,7 @@ get_destination_size (tree dest)
 
 static bool
 try_substitute_return_value (gimple_stmt_iterator *gsi,
-			     const pass_sprintf_length::call_info &info,
+			     const sprintf_dom_walker::call_info &info,
 			     const format_result &res)
 {
   tree lhs = gimple_get_lhs (info.callstmt);
@@ -3529,42 +3607,18 @@ try_substitute_return_value (gimple_stmt_iterator *gsi,
   /* Set to true when the entire call has been removed.  */
   bool removed = false;
 
-  /* The minimum return value.  */
-  unsigned HOST_WIDE_INT minretval = res.range.min;
+  /* The minimum and maximum return value.  */
+  unsigned HOST_WIDE_INT retval[2];
+  bool safe = is_call_safe (info, res, true, retval);
 
-  /* The maximum return value is in most cases bounded by RES.RANGE.MAX
-     but in cases involving multibyte characters could be as large as
-     RES.RANGE.UNLIKELY.  */
-  unsigned HOST_WIDE_INT maxretval
-    = res.range.unlikely < res.range.max ? res.range.max : res.range.unlikely;
-
-  /* Adjust the number of bytes which includes the terminating nul
-     to reflect the return value of the function which does not.
-     Because the valid range of the function is [INT_MIN, INT_MAX],
-     a valid range before the adjustment below is [0, INT_MAX + 1]
-     (the functions only return negative values on error or undefined
-     behavior).  */
-  if (minretval <= target_int_max () + 1)
-    --minretval;
-  if (maxretval <= target_int_max () + 1)
-    --maxretval;
-
-  /* Avoid the return value optimization when the behavior of the call
-     is undefined either because any directive may have produced 4K or
-     more of output, or the return value exceeds INT_MAX, or because
-     the output overflows the destination object (but leave it enabled
-     when the function is bounded because then the behavior is well-
-     defined).  */
-  if (res.under4k
-      && minretval == maxretval
-      && (info.bounded || minretval < info.objsize)
-      && minretval <= target_int_max ()
+  if (safe
+      && retval[0] == retval[1]
       /* Not prepared to handle possibly throwing calls here; they shouldn't
 	 appear in non-artificial testcases, except when the __*_chk routines
 	 are badly declared.  */
       && !stmt_ends_bb_p (info.callstmt))
     {
-      tree cst = build_int_cst (integer_type_node, minretval);
+      tree cst = build_int_cst (integer_type_node, retval[0]);
 
       if (lhs == NULL_TREE
 	  && info.nowrite)
@@ -3612,18 +3666,18 @@ try_substitute_return_value (gimple_stmt_iterator *gsi,
     {
       bool setrange = false;
 
-      if ((info.bounded || maxretval < info.objsize)
-	  && res.under4k
-	  && (minretval < target_int_max ()
-	      && maxretval < target_int_max ()))
+      if (safe
+	  && (info.bounded || retval[1] < info.objsize)
+	  && (retval[0] < target_int_max ()
+	      && retval[1] < target_int_max ()))
 	{
 	  /* If the result is in a valid range bounded by the size of
 	     the destination set it so that it can be used for subsequent
 	     optimizations.  */
 	  int prec = TYPE_PRECISION (integer_type_node);
 
-	  wide_int min = wi::shwi (minretval, prec);
-	  wide_int max = wi::shwi (maxretval, prec);
+	  wide_int min = wi::shwi (retval[0], prec);
+	  wide_int max = wi::shwi (retval[1], prec);
 	  set_range_info (lhs, VR_RANGE, min, max);
 
 	  setrange = true;
@@ -3632,21 +3686,22 @@ try_substitute_return_value (gimple_stmt_iterator *gsi,
       if (dump_file)
 	{
 	  const char *inbounds
-	    = (minretval < info.objsize
-	       ? (maxretval < info.objsize
+	    = (retval[0] < info.objsize
+	       ? (retval[1] < info.objsize
 		  ? "in" : "potentially out-of")
 	       : "out-of");
 
 	  const char *what = setrange ? "Setting" : "Discarding";
-	  if (minretval != maxretval)
+	  if (retval[0] != retval[1])
 	    fprintf (dump_file,
-		     "  %s %s-bounds return value range [%llu, %llu].\n",
-		     what, inbounds,
-		     (unsigned long long)minretval,
-		     (unsigned long long)maxretval);
+		     "  %s %s-bounds return value range ["
+		     HOST_WIDE_INT_PRINT_UNSIGNED ", "
+		     HOST_WIDE_INT_PRINT_UNSIGNED "].\n",
+		     what, inbounds, retval[0], retval[1]);
 	  else
-	    fprintf (dump_file, "  %s %s-bounds return value %llu.\n",
-		     what, inbounds, (unsigned long long)minretval);
+	    fprintf (dump_file, "  %s %s-bounds return value "
+		     HOST_WIDE_INT_PRINT_UNSIGNED ".\n",
+		     what, inbounds, retval[0]);
 	}
     }
 
@@ -3656,12 +3711,40 @@ try_substitute_return_value (gimple_stmt_iterator *gsi,
   return removed;
 }
 
+/* Try to simplify a s{,n}printf call described by INFO with result
+   RES by replacing it with a simpler and presumably more efficient
+   call (such as strcpy).  */
+
+static bool
+try_simplify_call (gimple_stmt_iterator *gsi,
+		   const sprintf_dom_walker::call_info &info,
+		   const format_result &res)
+{
+  unsigned HOST_WIDE_INT dummy[2];
+  if (!is_call_safe (info, res, info.retval_used (), dummy))
+    return false;
+
+  switch (info.fncode)
+    {
+    case BUILT_IN_SNPRINTF:
+      return gimple_fold_builtin_snprintf (gsi);
+
+    case BUILT_IN_SPRINTF:
+      return gimple_fold_builtin_sprintf (gsi);
+
+    default:
+      ;
+    }
+
+  return false;
+}
+
 /* Determine if a GIMPLE CALL is to one of the sprintf-like built-in
    functions and if so, handle it.  Return true if the call is removed
    and gsi_next should not be performed in the caller.  */
 
 bool
-pass_sprintf_length::handle_gimple_call (gimple_stmt_iterator *gsi)
+sprintf_dom_walker::handle_gimple_call (gimple_stmt_iterator *gsi)
 {
   call_info info = call_info ();
 
@@ -3807,7 +3890,7 @@ pass_sprintf_length::handle_gimple_call (gimple_stmt_iterator *gsi)
 	    }
 	  else if (dstsize > target_int_max ())
 	    warning_at (gimple_location (info.callstmt), info.warnopt (),
-			"specified bound %wu exceeds %<INT_MAX %>",
+			"specified bound %wu exceeds %<INT_MAX%>",
 			dstsize);
 	}
       else if (TREE_CODE (size) == SSA_NAME)
@@ -3907,13 +3990,41 @@ pass_sprintf_length::handle_gimple_call (gimple_stmt_iterator *gsi)
      attempt to substitute the computed result for the return value of
      the call.  Avoid this optimization when -frounding-math is in effect
      and the format string contains a floating point directive.  */
-  if (success
-      && optimize > 0
-      && flag_printf_return_value
-      && (!flag_rounding_math || !res.floating))
-    return try_substitute_return_value (gsi, info, res);
+  bool call_removed = false;
+  if (success && optimize > 0)
+    {
+      /* Save a copy of the iterator pointing at the call.  The iterator
+	 may change to point past the call in try_substitute_return_value
+	 but the original value is needed in try_simplify_call.  */
+      gimple_stmt_iterator gsi_call = *gsi;
 
-  return false;
+      if (flag_printf_return_value
+	  && (!flag_rounding_math || !res.floating))
+	call_removed = try_substitute_return_value (gsi, info, res);
+
+      if (!call_removed)
+	try_simplify_call (&gsi_call, info, res);
+    }
+
+  return call_removed;
+}
+
+edge
+sprintf_dom_walker::before_dom_children (basic_block bb)
+{
+  for (gimple_stmt_iterator si = gsi_start_bb (bb); !gsi_end_p (si); )
+    {
+      /* Iterate over statements, looking for function calls.  */
+      gimple *stmt = gsi_stmt (si);
+
+      if (is_gimple_call (stmt) && handle_gimple_call (&si))
+	/* If handle_gimple_call returns true, the iterator is
+	   already pointing to the next statement.  */
+	continue;
+
+      gsi_next (&si);
+    }
+  return NULL;
 }
 
 /* Execute the pass for function FUN.  */
@@ -3923,26 +4034,13 @@ pass_sprintf_length::execute (function *fun)
 {
   init_target_to_host_charmap ();
 
-  basic_block bb;
-  FOR_EACH_BB_FN (bb, fun)
-    {
-      for (gimple_stmt_iterator si = gsi_start_bb (bb); !gsi_end_p (si); )
-	{
-	  /* Iterate over statements, looking for function calls.  */
-	  gimple *stmt = gsi_stmt (si);
+  calculate_dominance_info (CDI_DOMINATORS);
 
-	  if (is_gimple_call (stmt) && handle_gimple_call (&si))
-	    /* If handle_gimple_call returns true, the iterator is
-	       already pointing to the next statement.  */
-	    continue;
-
-	  gsi_next (&si);
-	}
-    }
+  sprintf_dom_walker sprintf_dom_walker;
+  sprintf_dom_walker.walk (ENTRY_BLOCK_PTR_FOR_FN (fun));
 
   /* Clean up object size info.  */
   fini_object_sizes ();
-
   return 0;
 }
 

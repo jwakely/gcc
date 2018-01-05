@@ -1,5 +1,5 @@
 /* Symbol table.
-   Copyright (C) 2012-2017 Free Software Foundation, Inc.
+   Copyright (C) 2012-2018 Free Software Foundation, Inc.
    Contributed by Jan Hubicka
 
 This file is part of GCC.
@@ -35,6 +35,8 @@ along with GCC; see the file COPYING3.  If not see
 #include "output.h"
 #include "ipa-utils.h"
 #include "calls.h"
+#include "stringpool.h"
+#include "attribs.h"
 
 static const char *ipa_ref_use_name[] = {"read","write","addr","alias","chkp"};
 
@@ -296,7 +298,7 @@ symbol_table::change_decl_assembler_name (tree decl, tree name)
       const char *old_name = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl));
       if (TREE_SYMBOL_REFERENCED (DECL_ASSEMBLER_NAME (decl))
 	  && DECL_RTL_SET_P (decl))
-	warning (0, "%D renamed after being referenced in assembly", decl);
+	warning (0, "%qD renamed after being referenced in assembly", decl);
 
       SET_DECL_ASSEMBLER_NAME (decl, name);
       if (alias)
@@ -520,6 +522,31 @@ symtab_node::name () const
         return "<unnamed>";
     }
   return lang_hooks.decl_printable_name (decl, 2);
+}
+
+const char *
+symtab_node::get_dump_name (bool asm_name_p) const
+{
+#define EXTRA 16
+  const char *fname = asm_name_p ? asm_name () : name ();
+  unsigned l = strlen (fname);
+
+  char *s = (char *)ggc_internal_cleared_alloc (l + EXTRA);
+  snprintf (s, l + EXTRA, "%s/%d", fname, order);
+
+  return s;
+}
+
+const char *
+symtab_node::dump_name () const
+{
+  return get_dump_name (false);
+}
+
+const char *
+symtab_node::dump_asm_name () const
+{
+  return get_dump_name (true);
 }
 
 /* Return ipa reference from this symtab_node to
@@ -751,9 +778,8 @@ symtab_node::dump_references (FILE *file)
   int i;
   for (i = 0; iterate_reference (i, ref); i++)
     {
-      fprintf (file, "%s/%i (%s)",
-               ref->referred->asm_name (),
-               ref->referred->order,
+      fprintf (file, "%s (%s)",
+	       ref->referred->dump_asm_name (),
 	       ipa_ref_use_name [ref->use]);
       if (ref->speculative)
 	fprintf (file, " (speculative)");
@@ -770,9 +796,8 @@ symtab_node::dump_referring (FILE *file)
   int i;
   for (i = 0; iterate_referring(i, ref); i++)
     {
-      fprintf (file, "%s/%i (%s)",
-               ref->referring->asm_name (),
-               ref->referring->order,
+      fprintf (file, "%s (%s)",
+	       ref->referring->dump_asm_name (),
 	       ipa_ref_use_name [ref->use]);
       if (ref->speculative)
 	fprintf (file, " (speculative)");
@@ -791,7 +816,7 @@ symtab_node::dump_base (FILE *f)
     "default", "protected", "hidden", "internal"
   };
 
-  fprintf (f, "%s/%i (%s)", asm_name (), order, name ());
+  fprintf (f, "%s (%s)", dump_asm_name (), name ());
   dump_addr (f, " @", (void *)this);
   fprintf (f, "\n  Type: %s", symtab_type_names[type]);
 
@@ -874,9 +899,8 @@ symtab_node::dump_base (FILE *f)
   fprintf (f, "\n");
   
   if (same_comdat_group)
-    fprintf (f, "  Same comdat group as: %s/%i\n",
-	     same_comdat_group->asm_name (),
-	     same_comdat_group->order);
+    fprintf (f, "  Same comdat group as: %s\n",
+	     same_comdat_group->dump_asm_name ());
   if (next_sharing_asm_name)
     fprintf (f, "  next sharing asm name: %i\n",
 	     next_sharing_asm_name->order);
@@ -913,25 +937,14 @@ symtab_node::dump (FILE *f)
     vnode->dump (f);
 }
 
-/* Dump symbol table to F.  */
-
 void
-symtab_node::dump_table (FILE *f)
+symbol_table::dump (FILE *f)
 {
   symtab_node *node;
   fprintf (f, "Symbol table:\n\n");
   FOR_EACH_SYMBOL (node)
     node->dump (f);
 }
-
-/* Dump symbol table to stderr.  */
-
-DEBUG_FUNCTION void
-symtab_node::debug_symtab (void)
-{
-  dump_table (stderr);
-}
-
 
 /* Return the cgraph node that has ASMNAME for its DECL_ASSEMBLER_NAME.
    Return NULL if there's no such node.  */
@@ -1752,10 +1765,10 @@ symtab_node::noninterposable_alias (void)
 				   (void *)&new_node, true);
   if (new_node)
     return new_node;
-#ifndef ASM_OUTPUT_DEF
+
   /* If aliases aren't supported by the assembler, fail.  */
-  return NULL;
-#endif
+  if (!TARGET_SUPPORTS_ALIASES)
+    return NULL;
 
   /* Otherwise create a new one.  */
   new_decl = copy_node (node->decl);

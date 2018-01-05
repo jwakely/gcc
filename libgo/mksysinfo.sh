@@ -34,6 +34,7 @@ grep -v '^// ' gen-sysinfo.go | \
   grep -v '^type _timespec ' | \
   grep -v '^type _timestruc_t ' | \
   grep -v '^type _epoll_' | \
+  grep -v '^type _*locale[_ ]' | \
   grep -v 'in6_addr' | \
   grep -v 'sockaddr_in6' | \
   sed -e 's/\([^a-zA-Z0-9_]\)_timeval\([^a-zA-Z0-9_]\)/\1Timeval\2/g' \
@@ -41,6 +42,16 @@ grep -v '^// ' gen-sysinfo.go | \
       -e 's/\([^a-zA-Z0-9_]\)_timespec\([^a-zA-Z0-9_]\)/\1Timespec\2/g' \
       -e 's/\([^a-zA-Z0-9_]\)_timestruc_t\([^a-zA-Z0-9_]\)/\1Timestruc\2/g' \
     >> ${OUT}
+
+# On AIX, the _arpcom struct, is filtered by the above grep sequence, as it as
+# a field of type _in6_addr, but other types depend on _arpcom, so we need to
+# put it back.
+grep '^type _arpcom ' gen-sysinfo.go | \
+  sed -e 's/_in6_addr/[16]byte/' >> ${OUT}
+
+# Same on Solaris for _mld_hdr_t.
+grep '^type _mld_hdr_t ' gen-sysinfo.go | \
+  sed -e 's/_in6_addr/[16]byte/' >> ${OUT}
 
 # The errno constants.  These get type Errno.
   egrep '#define E[A-Z0-9_]+ ' errno.i | \
@@ -59,6 +70,15 @@ fi
 # The os package requires F_DUPFD_CLOEXEC to be defined.
 if ! grep '^const F_DUPFD_CLOEXEC' ${OUT} >/dev/null 2>&1; then
   echo "const F_DUPFD_CLOEXEC = 0" >> ${OUT}
+fi
+
+# AIX 7.1 is a 64 bits value for _FCLOEXEC (referenced by O_CLOEXEC)
+# which leads to a constant overflow when using O_CLOEXEC in some
+# go code. Issue wan not present in 6.1 (no O_CLOEXEC) and is no
+# more present in 7.2 (_FCLOEXEC is a 32 bit value).
+if test "${GOOS}" = "aix" && `oslevel | grep -q "^7.1"`; then
+    sed -e 's/const __FCLOEXEC = .*/const __FCLOEXEC = 0/' ${OUT} > ${OUT}-2
+    mv ${OUT}-2 ${OUT}
 fi
 
 # These flags can be lost on i386 GNU/Linux when using
@@ -295,16 +315,11 @@ upcase_fields () {
 # _user_regs_struct.
 regs=`grep '^type _user_regs_struct struct' gen-sysinfo.go || true`
 if test "$regs" = ""; then
-  # s390
-  regs=`grep '^type __user_regs_struct struct' gen-sysinfo.go || true`
-  if test "$regs" != ""; then
-    # Substructures of __user_regs_struct on s390
-    upcase_fields "__user_psw_struct" "PtracePsw" >> ${OUT} || true
-    upcase_fields "__user_fpregs_struct" "PtraceFpregs" >> ${OUT} || true
-    upcase_fields "__user_per_struct" "PtracePer" >> ${OUT} || true
-  fi
+  # mips*
+  regs=`grep '^type _pt_regs struct' gen-sysinfo.go || true`
 fi
 if test "$regs" != ""; then
+  regs=`echo $regs | sed -e 's/type _pt_regs struct//'`
   regs=`echo $regs |
     sed -e 's/type __*user_regs_struct struct //' -e 's/[{}]//g'`
   regs=`echo $regs | sed -e s'/^ *//'`
@@ -452,6 +467,7 @@ fi | sed -e 's/type _stat64/type Stat_t/' \
          -e 's/st_ctim/Ctim/' \
          -e 's/\([^a-zA-Z0-9_]\)_timeval\([^a-zA-Z0-9_]\)/\1Timeval\2/g' \
          -e 's/\([^a-zA-Z0-9_]\)_timespec_t\([^a-zA-Z0-9_]\)/\1Timespec\2/g' \
+         -e 's/\([^a-zA-Z0-9_]\)_st_timespec_t\([^a-zA-Z0-9_]\)/\1Timespec\2/g' \
          -e 's/\([^a-zA-Z0-9_]\)_timespec\([^a-zA-Z0-9_]\)/\1Timespec\2/g' \
          -e 's/\([^a-zA-Z0-9_]\)_timestruc_t\([^a-zA-Z0-9_]\)/\1Timestruc\2/g' \
          -e 's/Godump_[0-9] struct { \([^;]*;\) };/\1/g' \
@@ -470,6 +486,7 @@ fi | sed -e 's/type _dirent64/type Dirent/' \
          -e 's/d_name/Name/' \
          -e 's/]int8/]byte/' \
          -e 's/d_ino/Ino/' \
+         -e 's/d_namlen/Namlen/' \
          -e 's/d_off/Off/' \
          -e 's/d_reclen/Reclen/' \
          -e 's/d_type/Type/' \
@@ -655,6 +672,11 @@ grep '^const _EAI_' gen-sysinfo.go | \
   sed -e 's/^\(const \)_\(EAI_[^= ]*\)\(.*\)$/\1\2 = _\2/' >> ${OUT}
 grep '^const _NI_' gen-sysinfo.go | \
   sed -e 's/^\(const \)_\(NI_[^= ]*\)\(.*\)$/\1\2 = _\2/' >> ${OUT}
+
+# If nothing else defined EAI_OVERFLOW, make sure it has a value.
+if ! grep "const EAI_OVERFLOW " ${OUT} >/dev/null 2>&1; then
+  echo "const EAI_OVERFLOW = 0" >> ${OUT}
+fi
 
 # The passwd struct.
 grep '^type _passwd ' gen-sysinfo.go | \
@@ -868,6 +890,11 @@ if ! grep '^const _TIOCSCTTY ' gen-sysinfo.go >/dev/null 2>&1; then
   if grep '^const _TIOCNXCL ' gen-sysinfo.go >/dev/null 2>&1; then
     echo "const TIOCSCTTY = TIOCNXCL" >> ${OUT}
   fi
+fi
+
+# If nothing else defined TIOCSCTTY, make sure it has a value.
+if ! grep "const TIOCSCTTY " ${OUT} >/dev/null 2>&1; then
+  echo "const TIOCSCTTY = 0" >> ${OUT}
 fi
 
 # The nlmsghdr struct.
@@ -1268,22 +1295,22 @@ grep '^type _zone_net_addr_t ' gen-sysinfo.go | \
     sed -e 's/_in6_addr/[16]byte/' \
     >> ${OUT}
 
-# The Solaris 12 _flow_arp_desc_t struct.
+# The Solaris 11.4 _flow_arp_desc_t struct.
 grep '^type _flow_arp_desc_t ' gen-sysinfo.go | \
     sed -e 's/_in6_addr_t/[16]byte/g' \
     >> ${OUT}
 
-# The Solaris 12 _flow_l3_desc_t struct.
+# The Solaris 11.4 _flow_l3_desc_t struct.
 grep '^type _flow_l3_desc_t ' gen-sysinfo.go | \
     sed -e 's/_in6_addr_t/[16]byte/g' \
     >> ${OUT}
 
-# The Solaris 12 _mac_ipaddr_t struct.
+# The Solaris 11.3 _mac_ipaddr_t struct.
 grep '^type _mac_ipaddr_t ' gen-sysinfo.go | \
     sed -e 's/_in6_addr_t/[16]byte/g' \
     >> ${OUT}
 
-# The Solaris 12 _mactun_info_t struct.
+# The Solaris 11.3 _mactun_info_t struct.
 grep '^type _mactun_info_t ' gen-sysinfo.go | \
     sed -e 's/_in6_addr_t/[16]byte/g' \
     >> ${OUT}

@@ -1,6 +1,6 @@
 # Pretty-printers for libstdc++.
 
-# Copyright (C) 2008-2017 Free Software Foundation, Inc.
+# Copyright (C) 2008-2018 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -99,7 +99,7 @@ def find_type(orig, name):
             raise ValueError("Cannot find type %s::%s" % (str(orig), name))
         typ = field.type
 
-_versioned_namespace = '__7::'
+_versioned_namespace = '__8::'
 
 # Test if a type is a given template instantiation.
 def is_specialization_of(type, template_name):
@@ -973,8 +973,8 @@ class StdExpAnyPrinter(SingleObjContainerPrinter):
     "Print a std::any or std::experimental::any"
 
     def __init__ (self, typename, val):
-        self.typename = re.sub('^std::experimental::fundamentals_v\d::', 'std::experimental::', typename, 1)
-        self.typename = strip_versioned_namespace(self.typename)
+        self.typename = strip_versioned_namespace(typename)
+        self.typename = re.sub('^std::experimental::fundamentals_v\d::', 'std::experimental::', self.typename, 1)
         self.val = val
         self.contained_type = None
         contained_value = None
@@ -1021,8 +1021,8 @@ class StdExpOptionalPrinter(SingleObjContainerPrinter):
 
     def __init__ (self, typename, val):
         valtype = self._recognize (val.type.template_argument(0))
-        self.typename = re.sub('^std::(experimental::|)(fundamentals_v\d::|)(.*)', r'std::\1\3<%s>' % valtype, typename, 1)
-        self.typename = strip_versioned_namespace(self.typename)
+        self.typename = strip_versioned_namespace(typename)
+        self.typename = re.sub('^std::(experimental::|)(fundamentals_v\d::|)(.*)', r'std::\1\3<%s>' % valtype, self.typename, 1)
         if not self.typename.startswith('std::experimental'):
             val = val['_M_payload']
         self.val = val
@@ -1043,8 +1043,8 @@ class StdVariantPrinter(SingleObjContainerPrinter):
 
     def __init__(self, typename, val):
         alternatives = self._template_args(val)
-        self.typename = "%s<%s>" % (typename, ', '.join([self._recognize(alt) for alt in alternatives]))
-        self.typename = strip_versioned_namespace(self.typename)
+        self.typename = strip_versioned_namespace(typename)
+        self.typename = "%s<%s>" % (self.typename, ', '.join([self._recognize(alt) for alt in alternatives]))
         self.index = val['_M_index']
         if self.index >= len(alternatives):
             self.contained_type = None
@@ -1227,7 +1227,8 @@ class Printer(object):
     def add_version(self, base, name, function):
         self.add(base + name, function)
         if _versioned_namespace:
-            self.add(base + _versioned_namespace + name, function)
+            vbase = re.sub('^(std|__gnu_cxx)::', r'\g<0>%s' % _versioned_namespace, base)
+            self.add(vbase + name, function)
 
     # Add a name using _GLIBCXX_BEGIN_NAMESPACE_CONTAINER.
     def add_container(self, base, name, function):
@@ -1507,7 +1508,7 @@ def build_libstdcxx_dictionary ():
     # In order from:
     # http://gcc.gnu.org/onlinedocs/libstdc++/latest-doxygen/a01847.html
     libstdcxx_printer.add_version('std::', 'basic_string', StdStringPrinter)
-    libstdcxx_printer.add_version('std::', '__cxx11::basic_string', StdStringPrinter)
+    libstdcxx_printer.add_version('std::__cxx11::', 'basic_string', StdStringPrinter)
     libstdcxx_printer.add_container('std::', 'bitset', StdBitsetPrinter)
     libstdcxx_printer.add_container('std::', 'deque', StdDequePrinter)
     libstdcxx_printer.add_container('std::', 'list', StdListPrinter)
@@ -1591,6 +1592,10 @@ def build_libstdcxx_dictionary ():
     libstdcxx_printer.add_version('std::experimental::filesystem::v1::',
                                   'path', StdExpPathPrinter)
     libstdcxx_printer.add_version('std::experimental::filesystem::v1::__cxx11::',
+                                  'path', StdExpPathPrinter)
+    libstdcxx_printer.add_version('std::filesystem::',
+                                  'path', StdExpPathPrinter)
+    libstdcxx_printer.add_version('std::filesystem::__cxx11::',
                                   'path', StdExpPathPrinter)
 
     # C++17 components

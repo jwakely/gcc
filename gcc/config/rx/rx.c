@@ -1,5 +1,5 @@
 /* Subroutines used for code generation on Renesas RX processors.
-   Copyright (C) 2008-2017 Free Software Foundation, Inc.
+   Copyright (C) 2008-2018 Free Software Foundation, Inc.
    Contributed by Red Hat.
 
    This file is part of GCC.
@@ -22,6 +22,8 @@
 
  * Re-enable memory-to-memory copies and fix up reload.  */
 
+#define IN_TARGET_CODE 1
+
 #include "config.h"
 #include "system.h"
 #include "coretypes.h"
@@ -29,6 +31,8 @@
 #include "target.h"
 #include "rtl.h"
 #include "tree.h"
+#include "stringpool.h"
+#include "attribs.h"
 #include "cfghooks.h"
 #include "df.h"
 #include "memmodel.h"
@@ -964,25 +968,25 @@ rx_gen_move_template (rtx * operands, bool is_movu)
   /* Decide which extension, if any, should be given to the move instruction.  */
   switch (CONST_INT_P (src) ? GET_MODE (dest) : GET_MODE (src))
     {
-    case QImode:
+    case E_QImode:
       /* The .B extension is not valid when
 	 loading an immediate into a register.  */
       if (! REG_P (dest) || ! CONST_INT_P (src))
 	extension = ".B";
       break;
-    case HImode:
+    case E_HImode:
       if (! REG_P (dest) || ! CONST_INT_P (src))
 	/* The .W extension is not valid when
 	   loading an immediate into a register.  */
 	extension = ".W";
       break;
-    case DFmode:
-    case DImode:
-    case SFmode:
-    case SImode:
+    case E_DFmode:
+    case E_DImode:
+    case E_SFmode:
+    case E_SImode:
       extension = ".L";
       break;
-    case VOIDmode:
+    case E_VOIDmode:
       /* This mode is used by constants.  */
       break;
     default:
@@ -1886,8 +1890,7 @@ add_vector_labels (FILE *file, const char *aname)
 }
 
 static void
-rx_output_function_prologue (FILE * file,
-			     HOST_WIDE_INT frame_size ATTRIBUTE_UNUSED)
+rx_output_function_prologue (FILE * file)
 {
   add_vector_labels (file, "interrupt");
   add_vector_labels (file, "vector");
@@ -2730,17 +2733,17 @@ rx_handle_vector_attribute (tree * node,
 /* Table of RX specific attributes.  */
 const struct attribute_spec rx_attribute_table[] =
 {
-  /* Name, min_len, max_len, decl_req, type_req, fn_type_req, handler,
-     affects_type_identity.  */
-  { "fast_interrupt", 0, 0, true, false, false, rx_handle_func_attribute,
-    false },
-  { "interrupt",      0, -1, true, false, false, rx_handle_func_attribute,
-    false },
-  { "naked",          0, 0, true, false, false, rx_handle_func_attribute,
-    false },
-  { "vector",         1, -1, true, false, false, rx_handle_vector_attribute,
-    false },
-  { NULL,             0, 0, false, false, false, NULL, false }
+  /* Name, min_len, max_len, decl_req, type_req, fn_type_req,
+     affects_type_identity, handler, exclude.  */
+  { "fast_interrupt", 0, 0, true, false, false, false,
+    rx_handle_func_attribute, NULL },
+  { "interrupt",      0, -1, true, false, false, false,
+    rx_handle_func_attribute, NULL },
+  { "naked",          0, 0, true, false, false, false,
+    rx_handle_func_attribute, NULL },
+  { "vector",         1, -1, true, false, false, false,
+    rx_handle_vector_attribute, NULL },
+  { NULL,             0, 0, false, false, false, false, NULL, NULL }
 };
 
 /* Implement TARGET_OVERRIDE_OPTIONS_AFTER_CHANGE.  */
@@ -3078,15 +3081,15 @@ flags_from_mode (machine_mode mode)
 {
   switch (mode)
     {
-    case CC_ZSmode:
+    case E_CC_ZSmode:
       return CC_FLAG_S | CC_FLAG_Z;
-    case CC_ZSOmode:
+    case E_CC_ZSOmode:
       return CC_FLAG_S | CC_FLAG_Z | CC_FLAG_O;
-    case CC_ZSCmode:
+    case E_CC_ZSCmode:
       return CC_FLAG_S | CC_FLAG_Z | CC_FLAG_C;
-    case CCmode:
+    case E_CCmode:
       return CC_FLAG_S | CC_FLAG_Z | CC_FLAG_O | CC_FLAG_C;
-    case CC_Fmode:
+    case E_CC_Fmode:
       return CC_FLAG_FP;
     default:
       gcc_unreachable ();
@@ -3205,7 +3208,7 @@ rx_match_ccmode (rtx insn, machine_mode cc_mode)
 
   gcc_checking_assert (XVECLEN (PATTERN (insn), 0) == 2);
 
-  op1 = XVECEXP (PATTERN (insn), 0, 1);
+  op1 = XVECEXP (PATTERN (insn), 0, 0);
   gcc_checking_assert (GET_CODE (SET_SRC (op1)) == COMPARE);
 
   flags = SET_DEST (op1);
@@ -3433,6 +3436,32 @@ rx_atomic_sequence::~rx_atomic_sequence (void)
     emit_insn (gen_mvtc (GEN_INT (CTRLREG_PSW), m_prev_psw_reg));
 }
 
+/* Implement TARGET_HARD_REGNO_NREGS.  */
+
+static unsigned int
+rx_hard_regno_nregs (unsigned int, machine_mode mode)
+{
+  return CLASS_MAX_NREGS (0, mode);
+}
+
+/* Implement TARGET_HARD_REGNO_MODE_OK.  */
+
+static bool
+rx_hard_regno_mode_ok (unsigned int regno, machine_mode)
+{
+  return REGNO_REG_CLASS (regno) == GR_REGS;
+}
+
+/* Implement TARGET_MODES_TIEABLE_P.  */
+
+static bool
+rx_modes_tieable_p (machine_mode mode1, machine_mode mode2)
+{
+  return ((GET_MODE_CLASS (mode1) == MODE_FLOAT
+	   || GET_MODE_CLASS (mode1) == MODE_COMPLEX_FLOAT)
+	  == (GET_MODE_CLASS (mode2) == MODE_FLOAT
+	      || GET_MODE_CLASS (mode2) == MODE_COMPLEX_FLOAT));
+}
 
 #undef  TARGET_NARROW_VOLATILE_BITFIELD
 #define TARGET_NARROW_VOLATILE_BITFIELD		rx_narrow_volatile_bitfield
@@ -3586,6 +3615,14 @@ rx_atomic_sequence::~rx_atomic_sequence (void)
 
 #undef  TARGET_LRA_P
 #define TARGET_LRA_P 				rx_enable_lra
+
+#undef  TARGET_HARD_REGNO_NREGS
+#define TARGET_HARD_REGNO_NREGS			rx_hard_regno_nregs
+#undef  TARGET_HARD_REGNO_MODE_OK
+#define TARGET_HARD_REGNO_MODE_OK		rx_hard_regno_mode_ok
+
+#undef  TARGET_MODES_TIEABLE_P
+#define TARGET_MODES_TIEABLE_P			rx_modes_tieable_p
 
 struct gcc_target targetm = TARGET_INITIALIZER;
 

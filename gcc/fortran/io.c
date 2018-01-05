@@ -1,5 +1,5 @@
 /* Deal with I/O statements & related stuff.
-   Copyright (C) 2000-2017 Free Software Foundation, Inc.
+   Copyright (C) 2000-2018 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -111,6 +111,9 @@ static gfc_dt *current_dt;
 
 #define RESOLVE_TAG(x, y) if (!resolve_tag (x, y)) return false;
 
+/* Are we currently processing an asynchronous I/O statement? */
+
+bool async_io_dt;
 
 /**************** Fortran 95 FORMAT parser  *****************/
 
@@ -1515,8 +1518,8 @@ match_dec_etag (const io_tag *tag, gfc_expr **e)
     return m;
   else if (m != MATCH_NO)
     {
-      gfc_error ("%s is a DEC extension at %C, re-compile with "
-	  "-fdec to enable", tag->name);
+      gfc_error ("%s at %C is a DEC extension, enable with "
+		 "%<-fdec%>", tag->name);
       return MATCH_ERROR;
     }
   return m;
@@ -1532,8 +1535,8 @@ match_dec_vtag (const io_tag *tag, gfc_expr **e)
     return m;
   else if (m != MATCH_NO)
     {
-      gfc_error ("%s is a DEC extension at %C, re-compile with "
-	  "-fdec to enable", tag->name);
+      gfc_error ("%s at %C is a DEC extension, enable with "
+		 "%<-fdec%>", tag->name);
       return MATCH_ERROR;
     }
   return m;
@@ -1553,8 +1556,8 @@ match_dec_ftag (const io_tag *tag, gfc_open *o)
 
   if (!flag_dec)
     {
-      gfc_error ("%s is a DEC extension at %C, re-compile with "
-		 "-fdec to enable", tag->name);
+      gfc_error ("%s at %C is a DEC extension, enable with "
+		 "%<-fdec%>", tag->name);
       return MATCH_ERROR;
     }
 
@@ -1944,7 +1947,15 @@ static int
 compare_to_allowed_values (const char *specifier, const char *allowed[],
 			   const char *allowed_f2003[], 
 			   const char *allowed_gnu[], gfc_char_t *value,
-			   const char *statement, bool warn)
+			   const char *statement, bool warn,
+			   int *num = NULL);
+
+
+static int
+compare_to_allowed_values (const char *specifier, const char *allowed[],
+			   const char *allowed_f2003[], 
+			   const char *allowed_gnu[], gfc_char_t *value,
+			   const char *statement, bool warn, int *num)
 {
   int i;
   unsigned int len;
@@ -1961,7 +1972,11 @@ compare_to_allowed_values (const char *specifier, const char *allowed[],
   for (i = 0; allowed[i]; i++)
     if (len == strlen (allowed[i])
 	&& gfc_wide_strncasecmp (value, allowed[i], strlen (allowed[i])) == 0)
+      {
+	if (num)
+	  *num = i;
       return 1;
+      }
 
   for (i = 0; allowed_f2003 && allowed_f2003[i]; i++)
     if (len == strlen (allowed_f2003[i])
@@ -2966,6 +2981,30 @@ conflict:
   return MATCH_ERROR;
 }
 
+/* Check for formatted read and write DTIO procedures.  */
+
+static bool
+dtio_procs_present (gfc_symbol *sym, io_kind k)
+{
+  gfc_symbol *derived;
+
+  if (sym && sym->ts.u.derived)
+    {
+      if (sym->ts.type == BT_CLASS && CLASS_DATA (sym))
+	derived = CLASS_DATA (sym)->ts.u.derived;
+      else if (sym->ts.type == BT_DERIVED)
+	derived = sym->ts.u.derived;
+      else
+	return false;
+      if ((k == M_WRITE || k == M_PRINT) && 
+	  (gfc_find_specific_dtio_proc (derived, true, true) != NULL))
+	return true;
+      if ((k == M_READ) &&
+	  (gfc_find_specific_dtio_proc (derived, false, true) != NULL))
+	return true;
+    }
+  return false;
+}
 
 /* Traverse a namelist that is part of a READ statement to make sure
    that none of the variables in the namelist are INTENT(IN).  Returns
@@ -3244,7 +3283,7 @@ gfc_resolve_dt (gfc_dt *dt, locus *loc)
 
   /* If we are reading and have a namelist, check that all namelist symbols
      can appear in a variable definition context.  */
-  if (k == M_READ && dt->namelist)
+  if (dt->namelist)
     {
       gfc_namelist* n;
       for (n = dt->namelist->namelist; n; n = n->next)
@@ -3252,17 +3291,50 @@ gfc_resolve_dt (gfc_dt *dt, locus *loc)
 	  gfc_expr* e;
 	  bool t;
 
-	  e = gfc_get_variable_expr (gfc_find_sym_in_symtree (n->sym));
-	  t = gfc_check_vardef_context (e, false, false, false, NULL);
-	  gfc_free_expr (e);
-
-	  if (!t)
+	  if (k == M_READ)
 	    {
-	      gfc_error ("NAMELIST %qs in READ statement at %L contains"
-			 " the symbol %qs which may not appear in a"
-			 " variable definition context",
-			 dt->namelist->name, loc, n->sym->name);
+	      e = gfc_get_variable_expr (gfc_find_sym_in_symtree (n->sym));
+	      t = gfc_check_vardef_context (e, false, false, false, NULL);
+	      gfc_free_expr (e);
+    
+	      if (!t)
+		{
+		  gfc_error ("NAMELIST %qs in READ statement at %L contains"
+			     " the symbol %qs which may not appear in a"
+			     " variable definition context",
+			     dt->namelist->name, loc, n->sym->name);
+		  return false;
+		}
+	    }
+
+	  t = dtio_procs_present (n->sym, k);
+
+	  if (n->sym->ts.type == BT_CLASS && !t)
+	    {
+	      gfc_error ("NAMELIST object %qs in namelist %qs at %L is "
+			 "polymorphic and requires a defined input/output "
+			 "procedure", n->sym->name, dt->namelist->name, loc);
 	      return false;
+	    }
+    
+	  if ((n->sym->ts.type == BT_DERIVED)
+	      && (n->sym->ts.u.derived->attr.alloc_comp
+		  || n->sym->ts.u.derived->attr.pointer_comp))
+	    {
+	      if (!gfc_notify_std (GFC_STD_F2003, "NAMELIST object %qs in "
+				   "namelist %qs at %L with ALLOCATABLE "
+				   "or POINTER components", n->sym->name,
+				   dt->namelist->name, loc))
+		return false;
+    
+	      if (!t)
+		{
+		  gfc_error ("NAMELIST object %qs in namelist %qs at %L has "
+			     "ALLOCATABLE or POINTER components and thus requires "
+			     "a defined input/output procedure", n->sym->name,
+			     dt->namelist->name, loc);
+		  return false;
+		}
 	    }
 	}
     }
@@ -3554,7 +3626,8 @@ terminate_io (gfc_code *io_code)
 
 /* Check the constraints for a data transfer statement.  The majority of the
    constraints appearing in 9.4 of the standard appear here.  Some are handled
-   in resolve_tag and others in gfc_resolve_dt.  */
+   in resolve_tag and others in gfc_resolve_dt.  Also set the async_io_dt flag
+   and, if necessary, the asynchronous flag on the SIZE argument.  */
 
 static match
 check_io_constraints (io_kind k, gfc_dt *dt, gfc_code *io_code,
@@ -3662,6 +3735,7 @@ if (condition) \
 
   if (dt->asynchronous) 
     {
+      int num;
       static const char * asynchronous[] = { "YES", "NO", NULL };
 
       if (!gfc_reduce_init_expr (dt->asynchronous))
@@ -3677,9 +3751,16 @@ if (condition) \
       if (!compare_to_allowed_values
 		("ASYNCHRONOUS", asynchronous, NULL, NULL,
 		 dt->asynchronous->value.character.string,
-		 io_kind_name (k), warn))
+		 io_kind_name (k), warn, &num))
 	return MATCH_ERROR;
+
+      /* Best to put this here because the yes/no info is still around.  */
+      async_io_dt = num == 0;
+      if (async_io_dt && dt->size)
+	dt->size->symtree->n.sym->attr.asynchronous = 1;
     }
+  else
+    async_io_dt = false;
 
   if (dt->id)
     {
@@ -4584,8 +4665,8 @@ match_wait_element (gfc_wait *wait)
 
   m = match_etag (&tag_unit, &wait->unit);
   RETM m = match_ltag (&tag_err, &wait->err);
-  RETM m = match_ltag (&tag_end, &wait->eor);
-  RETM m = match_ltag (&tag_eor, &wait->end);
+  RETM m = match_ltag (&tag_end, &wait->end);
+  RETM m = match_ltag (&tag_eor, &wait->eor);
   RETM m = match_etag (&tag_iomsg, &wait->iomsg);
   if (m == MATCH_YES && !check_char_variable (wait->iomsg))
     return MATCH_ERROR;
