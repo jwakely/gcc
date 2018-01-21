@@ -1477,13 +1477,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         {
           if (!_M_state)
             throw bad_executor();
+
           auto& __state = *_M_state;
-	  unique_lock<mutex> __lock(__state._M_mtx);
+          unique_lock<mutex> __lock(__state._M_mtx);
           __state._M_tasks.push(std::move(__f)); // XXX allocator not used
           if (!__state._M_scheduled)
           {
             __state._M_scheduled = true;
-            _M_inner_ex.post(_Runnable{_M_state, _M_inner_ex});
+            _M_inner_ex.post(_Runnable(_M_state, _M_inner_ex));
           }
         }
 
@@ -1499,8 +1500,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       struct _State
       {
-	std::thread::id         _M_running_on;
-        mutable mutex		_M_mtx;
+        std::thread::id         _M_running_on;
+        mutable mutex           _M_mtx;
         queue<function<void()>>	_M_tasks;
         bool                    _M_scheduled;
       };
@@ -1514,19 +1515,20 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         {
           function<void()> __f;
           auto& __state = *_M_state;
-          bool __empty;
           {
             unique_lock<mutex> __lock(__state._M_mtx);
             __f = std::move(__state._M_tasks.front());
             __state._M_tasks.pop();
-            __empty = __state._M_tasks.empty();
-            __state._M_scheduled = !__empty;
           }
 
           __f();
 
-          if (!__empty)
+          {
+            unique_lock<mutex> __lock(__state._M_mtx);
+            __state._M_scheduled = !__state._M_tasks.empty();
+            if (__state._M_scheduled)
               _M_inner_ex.post(*this);
+          }
         }
       };
 
