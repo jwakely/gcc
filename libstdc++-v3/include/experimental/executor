@@ -1532,7 +1532,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
             unique_lock<mutex> __lock(__state._M_mtx);
             __state._M_scheduled = !__state._M_tasks.empty();
             if (__state._M_scheduled)
-              _M_inner_ex.post(*this);
+              _M_inner_ex.post(std::move(*this));
           }
         }
       };
