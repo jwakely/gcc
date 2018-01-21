@@ -1433,7 +1433,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  static_assert(is_convertible<_OtherExecutor, _Executor>::value,
 			"inner executor type must be compatible");
 
-	  // TODO move state
+          _M_state = std::move(__other._M_state);
 	  _M_inner_ex = std::move(__other._M_inner_ex);
 	  return *this;
 	}
@@ -1473,7 +1473,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _Func, typename _Alloc>
 	void
-	post(_Func&& __f, const _Alloc& __a) const; // TODO
+	post(_Func&& __f, const _Alloc& __a) const
+        {
+          if (!_M_state)
+            throw bad_executor();
+          auto& __state = *_M_state;
+	  unique_lock<mutex> __lock(__state._M_mtx);
+          __state._M_tasks.push(std::move(__f)); // XXX allocator not used
+          if (!__state._M_scheduled)
+          {
+            __state._M_scheduled = true;
+            _M_inner_ex.post(_Runnable{_M_state, _M_inner_ex});
+          }
+        }
 
       template<typename _Func, typename _Alloc>
 	void
@@ -1485,10 +1497,39 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       operator==(const strand& __a, const strand& __b)
       { return __a._M_state == __b._M_state; }
 
-      // TODO add synchronised queue
       struct _State
       {
-	std::thread::id _M_running_on;
+	std::thread::id         _M_running_on;
+        mutable mutex		_M_mtx;
+        queue<function<void()>>	_M_tasks;
+        bool                    _M_scheduled;
+      };
+
+      struct _Runnable
+      {
+        shared_ptr<_State> _M_state;
+        _Executor _M_inner_ex;
+
+        void operator()()
+        {
+          function<void()> __f;
+          auto& __state = *_M_state;
+          bool __empty;
+          {
+            unique_lock<mutex> __lock(__state._M_mtx);
+            __f = std::move(__state._M_tasks.front());
+            __state._M_tasks.pop();
+          }
+
+          __f();
+
+          {
+            unique_lock<mutex> __lock(__state._M_mtx);
+            __state._M_scheduled = !__state._M_tasks.empty();
+            if (__state._M_scheduled)
+              _M_inner_ex.post(*this);
+          }
+        }
       };
       shared_ptr<_State> _M_state;
       _Executor _M_inner_ex;
