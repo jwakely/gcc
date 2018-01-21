@@ -1473,14 +1473,18 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
           if (!_M_state)
             throw bad_executor();
 
-          auto& __state = *_M_state;
-          unique_lock<mutex> __lock(__state._M_mtx);
-          __state._M_tasks.push(std::move(__f)); // XXX allocator not used
-          if (!__state._M_scheduled)
+          bool __schedule = false;
           {
-            __state._M_scheduled = true;
-            _M_inner_ex.post(_Runnable(_M_state, _M_inner_ex));
+            auto& __state = *_M_state;
+            unique_lock<mutex> __lock(__state._M_mtx);
+            __state._M_tasks.push(std::move(__f)); // XXX allocator not used
+            if (!__state._M_scheduled) {
+              __schedule = __state._M_scheduled = true;
+            }
           }
+
+          if (__schedule)
+            _M_inner_ex.post(_Runnable(_M_state, _M_inner_ex));
         }
 
       template<typename _Func, typename _Alloc>
