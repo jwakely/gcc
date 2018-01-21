@@ -1519,18 +1519,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
             unique_lock<mutex> __lock(__state._M_mtx);
             __f = std::move(__state._M_tasks.front());
             __state._M_tasks.pop();
+            __empty = __state._M_tasks.empty();
+            __state._M_scheduled = !__empty;
           }
 
           __f();
 
-          {
-            unique_lock<mutex> __lock(__state._M_mtx);
-            __state._M_scheduled = !__state._M_tasks.empty();
-            if (__state._M_scheduled)
+          if (!__empty)
               _M_inner_ex.post(*this);
-          }
         }
       };
+
       shared_ptr<_State> _M_state;
       _Executor _M_inner_ex;
     };
