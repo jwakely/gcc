@@ -1475,10 +1475,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
           bool __schedule = false;
           {
-            auto& __state = *_M_state;
-            unique_lock<mutex> __lock(__state._M_mtx);
-            __state._M_tasks.push(std::move(__f)); // XXX allocator not used
-            if (!__state._M_scheduled) {
+            unique_lock<mutex> __lock(_M_state->_M_mtx);
+            _M_state->_M_tasks.push(std::move(__f)); // XXX allocator not used
+            if (!_M_state->_M_scheduled) {
               __schedule = __state._M_scheduled = true;
             }
           }
@@ -1522,12 +1521,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         void operator()()
         {
           function<void()> __f;
-          auto& __state = *_M_state;
           {
-            unique_lock<mutex> __lock(__state._M_mtx);
-            __f = std::move(__state._M_tasks.front());
-            __state._M_tasks.pop();
-            __state._M_running_on = std::this_thread::get_id(); 
+            unique_lock<mutex> __lock(_M_state->_M_mtx);
+            __f = std::move(_M_state->_M_tasks.front());
+            _M_state->_M_tasks.pop();
+            _M_state->_M_running_on = std::this_thread::get_id(); 
           }
 
           __f();
