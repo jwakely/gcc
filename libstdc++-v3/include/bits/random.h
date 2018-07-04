@@ -1602,7 +1602,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     // constructors, destructors and member functions
 
-#ifdef _GLIBCXX_USE_DEV_RANDOM
+#if defined _GLIBCXX_USE_DEV_RANDOM || defined __WINNT__
     random_device() { _M_init("default"); }
 
     explicit
@@ -1639,7 +1639,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     result_type
     operator()()
     {
-#ifdef _GLIBCXX_USE_DEV_RANDOM
+#if defined _GLIBCXX_USE_DEV_RANDOM
       return this->_M_getval();
 #else
       return this->_M_getval_pretr1();
@@ -1662,7 +1662,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     union
     {
-      void*      _M_file;
+      struct {
+	  void*      _M_file;
+	  result_type (*_M_func)(void*);
+	  char _M_buf[sizeof(result_type) * 128 + sizeof(result_type*)];
+      };
       mt19937    _M_mt;
     };
   };
