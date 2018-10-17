@@ -1639,7 +1639,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     result_type
     operator()()
     {
-#if defined _GLIBCXX_USE_DEV_RANDOM
+#ifdef _GLIBCXX_USE_DEV_RANDOM
       return this->_M_getval();
 #else
       return this->_M_getval_pretr1();
@@ -1665,7 +1665,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       struct {
 	  void*      _M_file;
 	  result_type (*_M_func)(void*);
-	  char _M_buf[sizeof(result_type) * 128 + sizeof(result_type*)];
+	  int _M_fd;
+	  alignas(result_type) alignas(result_type*)
+	    char _M_buf[sizeof(result_type) * 128 + sizeof(result_type*)];
       };
       mt19937    _M_mt;
     };

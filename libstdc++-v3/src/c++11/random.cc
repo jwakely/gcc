@@ -40,8 +40,11 @@
 #include <cerrno>
 #include <cstdio>
 
-#ifdef _GLIBCXX_HAVE_UNISTD_H
+#if defined _GLIBCXX_HAVE_UNISTD_H && defined _GLIBCXX_HAVE_FCNTL_H
 # include <unistd.h>
+# include <fcntl.h>
+// Use POSIX open, close, read etc. instead of ISO fopen, fclose, fread
+# define USE_POSIX_FILE_IO
 #endif
 
 #ifdef _GLIBCXX_HAVE_SYS_IOCTL_H
@@ -63,6 +66,14 @@
 # define USE_RTLGENRANDOM
 #endif
 
+#if defined USE_RDRAND || defined USE_RDSEED || defined USE_RTLGENRANDOM \
+  || defined _GLIBCXX_USE_DEV_RANDOM
+# pragma GCC poison _M_mt
+#else
+// Use the mt19937 member of the union, as in previous GCC releases.
+# define USE_PRE_TR1
+#endif
+
 namespace std _GLIBCXX_VISIBILITY(default)
 {
   namespace
@@ -77,7 +88,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
 
       while (__builtin_ia32_rdrand32_step(&val) == 0)
 	if (--retries == 0)
-	  std::__throw_runtime_error(__N("random_device::__x86_rdrand(void)"));
+	  std::__throw_runtime_error(__N("random_device::__x86_rdrand"));
 
       return val;
     }
@@ -92,8 +103,11 @@ namespace std _GLIBCXX_VISIBILITY(default)
       unsigned int val;
 
       while (__builtin_ia32_rdseed_si_step(&val) == 0)
-	if (--retries == 0)
-	  std::__throw_runtime_error(__N("random_device::__x86_rdseed(void)"));
+	{
+	  asm volatile ("pause");
+	  if (--retries == 0)
+	    std::__throw_runtime_error(__N("random_device::__x86_rdseed"));
+	}
 
       return val;
     }
@@ -143,7 +157,7 @@ namespace std _GLIBCXX_VISIBILITY(default)
 	goto use_rdrand;
 #elif defined USE_RDSEED
 	goto use_rdseed;
-#else
+#elif defined _GLIBCXX_USE_DEV_RANDOM
 	fname = "/dev/urandom";
 	goto use_device_file;
 #endif
@@ -154,8 +168,9 @@ namespace std _GLIBCXX_VISIBILITY(default)
 use_rdrand:
 	unsigned int eax, ebx, ecx, edx;
 	// Check availability of cpuid and, for now at least, also the
-	// CPU signature for Intel's
-	if (__get_cpuid_max(0, &ebx) > 0 && ebx == signature_INTEL_ebx)
+	// CPU signature for Intel and AMD.
+	if (__get_cpuid_max(0, &ebx) > 0
+	    && (ebx == signature_INTEL_ebx || ebx == signature_AMD_ebx))
 	  {
 	    __cpuid(1, eax, ebx, ecx, edx);
 	    if (ecx & bit_RDRND)
@@ -173,8 +188,9 @@ use_rdrand:
 use_rdseed:
 	unsigned int eax, ebx, ecx, edx;
 	// Check availability of cpuid and, for now at least, also the
-	// CPU signature for Intel's
-	if (__get_cpuid_max(0, &ebx) > 0 && ebx == signature_INTEL_ebx)
+	// CPU signature for Intel and AMD.
+	if (__get_cpuid_max(0, &ebx) > 0
+	    && (ebx == signature_INTEL_ebx || ebx == signature_AMD_ebx))
 	  {
 	    __cpuid(1, eax, ebx, ecx, edx);
 	    if (ebx & bit_RDSEED)
@@ -195,14 +211,29 @@ use_rtlgenrandom:
 	return;
       }
 #endif
+#ifdef _GLIBCXX_USE_DEV_RANDOM
     else if (token == "/dev/urandom" || token == "/dev/random")
       {
 	fname = token.c_str();
 use_device_file:
+#ifdef USE_POSIX_FILE_IO
+	_M_fd = ::open(fname, O_RDONLY);
+	if (_M_fd != -1)
+	  {
+	    _M_file = &_M_fd;
+	    _M_func = nullptr;
+	    return;
+	  }
+#else
 	_M_file = static_cast<void*>(std::fopen(fname, "rb"));
 	if (_M_file)
-	  return;
+	  {
+	    _M_func = nullptr;
+	    return;
+	  }
+#endif
       }
+#endif
     else
       std::__throw_runtime_error(
 	  __N("random_device::random_device(const std::string&):"
@@ -215,13 +246,11 @@ use_device_file:
 #pragma GCC diagnostic pop
 
   void
-  random_device::_M_init_pretr1(const std::string& token [[gnu::unused]])
+  random_device::_M_init_pretr1(const std::string& token)
   {
-#ifdef USE_RTLGENRANDOM
-    _M_init("rtlgenrandom");
-#else
+#ifdef USE_PRE_TR1
     unsigned long seed = 5489UL;
-    if (token != "mt19937")
+    if (token != "default" && token != "mt19937")
       {
 	const char* nptr = token.c_str();
 	char* endptr;
@@ -231,16 +260,24 @@ use_device_file:
 					 "(const std::string&)"));
       }
     _M_mt.seed(seed);
+#else
+    // Convert old default token "mt19937" or numeric seed tokens to "default"
+    if (token == "mt19937" || isdigit((unsigned char)token[0]))
+      _M_init("default");
+    else
+      _M_init(token);
 #endif
   }
 
   void
   random_device::_M_fini()
   {
+    // _M_file == nullptr means no resources to free.
     if (!_M_file)
       return;
 
 #ifdef USE_RTLGENRANDOM
+    // _M_file != nullptr && _M_func != nullptr means "rtlgenrandom"
     if (_M_func)
       {
 	static_cast<rtlgenrandom_type*>(_M_file)->~rtlgenrandom_type();
@@ -250,7 +287,13 @@ use_device_file:
       }
 #endif
 
+#ifdef USE_POSIX_FILE_IO
+    ::close(_M_fd);
+    _M_fd = -1;
+#else
+    // _M_file != nullptr && _M_func == nullptr means device file is open
     std::fclose(static_cast<FILE*>(_M_file));
+#endif
     _M_file = nullptr;
   }
 
@@ -262,13 +305,13 @@ use_device_file:
       return _M_func(_M_file);
 #endif
 
-    result_type __ret;
-    void* p = &__ret;
+    result_type ret;
+    void* p = &ret;
     size_t n = sizeof(result_type);
-#ifdef _GLIBCXX_HAVE_UNISTD_H
+#ifdef USE_POSIX_FILE_IO
     do
       {
-	const int e = read(fileno(static_cast<FILE*>(_M_file)), p, n);
+	const int e = ::read(_M_fd, p, n);
 	if (e > 0)
 	  {
 	    n -= e;
@@ -284,37 +327,37 @@ use_device_file:
       __throw_runtime_error(__N("random_device could not be read"));
 #endif
 
-    return __ret;
+    return ret;
   }
 
   random_device::result_type
   random_device::_M_getval_pretr1()
   {
-#ifdef USE_RTLGENRANDOM
-    return _M_getval();
-#else
+#ifdef USE_PRE_TR1
     return _M_mt();
+#else
+    return _M_getval();
 #endif
   }
 
   double
   random_device::_M_getentropy() const noexcept
   {
-#if defined USE_RDRAND || defined USE_RDSEED || defined USE_RTLGENRANDOM
-    if (_M_func)
+#if defined _GLIBCXX_USE_DEV_RANDOM \
+    && defined _GLIBCXX_HAVE_SYS_IOCTL_H && defined RNDGETENTCNT
+    if (_M_func || !_M_file)
       return 0.0;
+
+#ifdef USE_POSIX_FILE_IO
+    const int fd = _M_fd;
+#else
+    const int fd = ::fileno(static_cast<FILE*>(_M_file));
 #endif
-
-#if defined _GLIBCXX_HAVE_SYS_IOCTL_H && defined RNDGETENTCNT
-    if (!_M_file)
-      return 0.0;
-
-    const int fd = fileno(static_cast<FILE*>(_M_file));
     if (fd < 0)
       return 0.0;
 
     int ent;
-    if (ioctl(fd, RNDGETENTCNT, &ent) < 0)
+    if (::ioctl(fd, RNDGETENTCNT, &ent) < 0)
       return 0.0;
 
     if (ent < 0)
@@ -330,6 +373,7 @@ use_device_file:
 #endif
   }
 
+#ifdef USE_PRE_TR1
   template class mersenne_twister_engine<
     uint_fast32_t,
     32, 624, 397, 31,
@@ -337,5 +381,6 @@ use_device_file:
     0xffffffffUL, 7,
     0x9d2c5680UL, 15,
     0xefc60000UL, 18, 1812433253UL>;
+#endif
 }
 #endif
