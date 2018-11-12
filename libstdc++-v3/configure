@@ -680,8 +680,12 @@ ENABLE_FILESYSTEM_TS_TRUE
 baseline_subdir_switch
 baseline_dir
 HWCAP_CFLAGS
+GLIBCXX_LDBL_ALT128_COMPAT_FALSE
+GLIBCXX_LDBL_ALT128_COMPAT_TRUE
 GLIBCXX_LDBL_COMPAT_FALSE
 GLIBCXX_LDBL_COMPAT_TRUE
+LONG_DOUBLE_ALT128_COMPAT_FLAGS
+LONG_DOUBLE_128_FLAGS
 LONG_DOUBLE_COMPAT_FLAGS
 ENABLE_CXX11_ABI_FALSE
 ENABLE_CXX11_ABI_TRUE
@@ -75596,7 +75600,11 @@ $as_echo "${default_libstdcxx_abi}" >&6; }
 
 
 ac_ldbl_compat=no
+ac_ldbl_alt128_compat=no
+ac_ldbl_ieee128_default=no
 LONG_DOUBLE_COMPAT_FLAGS="-mlong-double-64"
+LONG_DOUBLE_128_FLAGS=
+LONG_DOUBLE_ALT128_COMPAT_FLAGS=
 case "$target" in
   powerpc*-*-linux* | \
   sparc*-*-linux* | \
@@ -75630,10 +75638,66 @@ $as_echo "#define _GLIBCXX_LONG_DOUBLE_COMPAT 1" >>confdefs.h
     port_specific_symbol_files="\$(top_srcdir)/config/os/gnu-linux/ldbl-extra.ver"
     case "$target" in
       powerpc*-*-linux*)
-	LONG_DOUBLE_COMPAT_FLAGS="$LONG_DOUBLE_COMPAT_FLAGS -mno-gnu-attribute" ;;
+	LONG_DOUBLE_COMPAT_FLAGS="$LONG_DOUBLE_COMPAT_FLAGS -mno-gnu-attribute"
+        # Check for IEEE128 support in libc:
+        for ac_func in frexpf128
+do :
+  ac_fn_c_check_func "$LINENO" "frexpf128" "ac_cv_func_frexpf128"
+if test "x$ac_cv_func_frexpf128" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_FREXPF128 1
+_ACEOF
+ ac_ldbl_ieee128_in_libc=yes
+else
+  ac_ldbl_ieee128_in_libc=no
+fi
+done
+
+        if test $ac_ldbl_ieee128_in_libc = yes; then
+          # Determine which long double format is the compiler's default:
+          cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+int
+main ()
+{
+
+            #ifndef __LONG_DOUBLE_IEEE128__
+            #error compiler defaults to ibm128
+            #endif
+
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+  ac_ldbl_ieee128_default=yes
+else
+  ac_ldbl_ieee128_default=no
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+          # Library objects should use IEEE128 long double format by default.
+          if test "$ac_ldbl_ieee128_default" = no; then
+            # Add -mabi=ieeelongdouble to ensire that.
+            LONG_DOUBLE_128_FLAGS="-mabi=ieeelongdouble -mno-gnu-attribute -Wno-psabi"
+          fi
+          # Except for the ones that explicitly use these flags:
+          LONG_DOUBLE_ALT128_COMPAT_FLAGS="-mabi=ibmlongdouble -mno-gnu-attribute -Wno-psabi"
+
+$as_echo "#define _GLIBCXX_LONG_DOUBLE_ALT128_COMPAT 1" >>confdefs.h
+
+          port_specific_symbol_files="$port_specific_symbol_files \$(top_srcdir)/config/os/gnu-linux/ldbl-ieee128-extra.ver"
+          ac_ldbl_alt128_compat=yes
+        else
+          ac_ldbl_alt128_compat=no
+        fi
+	;;
     esac
   fi
 esac
+
+
+
 
 
 
@@ -78111,6 +78175,15 @@ else
 fi
 
 
+    if test $ac_ldbl_alt128_compat = yes; then
+  GLIBCXX_LDBL_ALT128_COMPAT_TRUE=
+  GLIBCXX_LDBL_ALT128_COMPAT_FALSE='#'
+else
+  GLIBCXX_LDBL_ALT128_COMPAT_TRUE='#'
+  GLIBCXX_LDBL_ALT128_COMPAT_FALSE=
+fi
+
+
     if test $enable_libstdcxx_filesystem_ts = yes; then
   ENABLE_FILESYSTEM_TS_TRUE=
   ENABLE_FILESYSTEM_TS_FALSE='#'
@@ -78619,6 +78692,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${GLIBCXX_LDBL_COMPAT_TRUE}" && test -z "${GLIBCXX_LDBL_COMPAT_FALSE}"; then
   as_fn_error $? "conditional \"GLIBCXX_LDBL_COMPAT\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${GLIBCXX_LDBL_ALT128_COMPAT_TRUE}" && test -z "${GLIBCXX_LDBL_ALT128_COMPAT_FALSE}"; then
+  as_fn_error $? "conditional \"GLIBCXX_LDBL_ALT128_COMPAT\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${ENABLE_FILESYSTEM_TS_TRUE}" && test -z "${ENABLE_FILESYSTEM_TS_FALSE}"; then
