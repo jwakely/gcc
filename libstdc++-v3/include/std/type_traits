@@ -1378,7 +1378,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     : public __is_convertible_helper<_From, _To>::type
     { };
 
-#if __cplusplus > 201703L
     template<typename _From, typename _To,
            bool = __or_<is_void<_From>, is_function<_To>,
                         is_array<_To>>::value>
@@ -1393,7 +1392,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	static void __test_aux(_To1) noexcept;
 
       template<typename _From1, typename _To1>
-	static bool_constant<noexcept(__test_aux<_To1>(std::declval<_From1>()))>
+	static
+	__bool_constant<noexcept(__test_aux<_To1>(std::declval<_From1>()))>
 	__test(int);
 
       template<typename, typename>
@@ -1404,6 +1404,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       using type = decltype(__test<_From, _To>(0));
     };
 
+  // is_nothrow_convertible for C++11
+  template<typename _From, typename _To>
+    struct __is_nothrow_convertible
+    : public __is_nt_convertible_helper<_From, _To>::type
+    { };
+
+#if __cplusplus > 201703L
   /// is_nothrow_convertible
   template<typename _From, typename _To>
     struct is_nothrow_convertible
@@ -2816,8 +2823,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     struct __is_nt_invocable_impl<_Result, _Ret,
 				  __void_t<typename _Result::type>>
     : __or_<is_void<_Ret>,
-	    __and_<is_convertible<typename _Result::type, _Ret>,
-		   is_nothrow_constructible<_Ret, typename _Result::type>>>
+	    __is_nothrow_convertible<typename _Result::type, _Ret>>
     { };
 
   /// std::is_nothrow_invocable_r
