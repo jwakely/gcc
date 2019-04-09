@@ -814,7 +814,11 @@ namespace __variant
 
   // Used for storing multi-dimensional vtable.
   template<typename _Tp, size_t... _Dimensions>
-    struct _Multi_array
+    struct _Multi_array;
+
+  // Partial specialization with rank zero, stores a single _Tp element.
+  template<typename _Tp>
+    struct _Multi_array<_Tp>
     {
       constexpr const _Tp&
       _M_access() const
@@ -823,24 +827,34 @@ namespace __variant
       _Tp _M_data;
     };
 
-  template<typename _Ret,
-	   typename _Visitor,
-	   typename... _Variants,
-	   size_t __first, size_t... __rest>
-    struct _Multi_array<_Ret(*)(_Visitor, _Variants...), __first, __rest...>
+  // Partial specialization with rank >= 1.
+  template<typename _Tp, size_t __first, size_t... __rest>
+    struct _Multi_array<_Tp, __first, __rest...>
     {
-      static constexpr size_t __index =
-	sizeof...(_Variants) - sizeof...(__rest) - 1;
-      using _Variant = typename _Nth_type<__index, _Variants...>::type;
-      static constexpr int __do_cookie =
-	_Extra_visit_slot_needed<_Ret, _Variant>::value ? 1 : 0;
-      using _Tp = _Ret(*)(_Visitor, _Variants...);
+      template<typename _Up>
+	struct _Wants_cookie : integral_constant<int, 0> { };
+
+      template<typename _Ret, typename _Visitor, typename... _Variants>
+	struct _Wants_cookie<_Ret (*)(_Visitor, _Variants...)>
+	{
+	  static constexpr size_t __index =
+	    sizeof...(_Variants) - sizeof...(__rest) - 1;
+
+	  using _Variant = typename _Nth_type<__index, _Variants...>::type;
+
+	  static constexpr int value =
+	    _Extra_visit_slot_needed<_Ret, _Variant>::value ? 1 : 0;
+	};
+
       template<typename... _Args>
 	constexpr const _Tp&
 	_M_access(size_t __first_index, _Args... __rest_indices) const
-        { return _M_arr[__first_index + __do_cookie]._M_access(__rest_indices...); }
+	{
+	  return _M_arr[__first_index + _Wants_cookie<_Tp>::value]
+	    ._M_access(__rest_indices...);
+	}
 
-      _Multi_array<_Tp, __rest...> _M_arr[__first + __do_cookie];
+      _Multi_array<_Tp, __rest...> _M_arr[__first + _Wants_cookie<_Tp>::value];
     };
 
   // Creates a multi-dimensional vtable recursively.
