@@ -1,5 +1,8 @@
 2019-04-09  Jonathan Wakely  <jwakely@redhat.com>
 
+	PR libstdc++/89851
+	* testsuite/20_util/variant/89851.cc: New test.
+
 	* include/std/variant: Adjust whitespace. Add comments.
 	(_Multi_array): Leave primary template undefined.
 	(_Multi_array<_Tp>): Define partial specialization for base case of
