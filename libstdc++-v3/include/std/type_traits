@@ -2093,14 +2093,37 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     : public __remove_pointer_helper<_Tp, __remove_cv_t<_Tp>>
     { };
 
-  template<typename _Tp, bool = __or_<__is_referenceable<_Tp>,
-				      is_void<_Tp>>::value>
+  template<typename _Tp, bool = __is_referenceable<_Tp>::value>
     struct __add_pointer_helper
-    { typedef _Tp     type; };
+    { using type = _Tp; };
+
+  template<>
+    struct __add_pointer_helper<void, false>
+    { using type = void*; };
+
+  template<>
+    struct __add_pointer_helper<const void, false>
+    { using type = const void*; };
+
+  template<>
+    struct __add_pointer_helper<volatile void, false>
+    { using type = volatile void*; };
+
+  template<>
+    struct __add_pointer_helper<const volatile void, false>
+    { using type = const volatile void*; };
 
   template<typename _Tp>
     struct __add_pointer_helper<_Tp, true>
-    { typedef typename remove_reference<_Tp>::type*     type; };
+    { using type = _Tp*; };
+
+  template<typename _Tp>
+    struct __add_pointer_helper<_Tp&, true>
+    { using type = _Tp*; };
+
+  template<typename _Tp>
+    struct __add_pointer_helper<_Tp&&, true>
+    { using type = _Tp*; };
 
   /// add_pointer
   template<typename _Tp>
