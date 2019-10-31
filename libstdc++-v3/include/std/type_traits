@@ -2244,13 +2244,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   /// decay
   template<typename _Tp>
-    class decay
-    {
-      typedef typename remove_reference<_Tp>::type __remove_type;
+    struct decay
+    { using type = typename __decay_selector<_Tp>::__type; };
 
-    public:
-      typedef typename __decay_selector<__remove_type>::__type type;
-    };
+  template<typename _Tp>
+    struct decay<_Tp&>
+    { using type = typename __decay_selector<_Tp>::__type; };
+
+  template<typename _Tp>
+    struct decay<_Tp&&>
+    { using type = typename __decay_selector<_Tp>::__type; };
 
   /// @cond undocumented
 
