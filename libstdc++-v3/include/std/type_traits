@@ -884,7 +884,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   template<typename _Tp>
     struct __is_array_unknown_bounds
-    : public __and_<is_array<_Tp>, __not_<extent<_Tp>>>
+    : public false_type
+    { };
+
+  template<typename _Tp>
+    struct __is_array_unknown_bounds<_Tp[]>
+    : public true_type
     { };
 
   // Destructible and constructible type properties.
@@ -3181,7 +3186,11 @@ template <typename _Tp>
 template <typename _Tp>
   inline constexpr bool is_floating_point_v = is_floating_point<_Tp>::value;
 template <typename _Tp>
-  inline constexpr bool is_array_v = is_array<_Tp>::value;
+  inline constexpr bool is_array_v = false;
+template <typename _Tp>
+  inline constexpr bool is_array_v<_Tp[]> = true;
+template <typename _Tp, size_t _Num>
+  inline constexpr bool is_array_v<_Tp[_Num]> = true;
 template <typename _Tp>
   inline constexpr bool is_pointer_v = is_pointer<_Tp>::value;
 template <typename _Tp>
@@ -3481,8 +3490,7 @@ template<typename _Ret, typename _Fn, typename... _Args>
   /// @ingroup variable_templates
   /// @since C++20
   template<typename _Tp>
-    inline constexpr bool is_bounded_array_v
-      = is_bounded_array<_Tp>::value;
+    inline constexpr bool is_bounded_array_v = extent<_Tp>::value != 0;
 
   /// @ingroup variable_templates
   /// @since C++20
