@@ -1,3 +1,7 @@
+2019-11-13  Janne Blomqvist  <jb@gcc.gnu.org>
+
+	* download_prerequisites: Use http instead of ftp for downloading.
+
 2019-08-12  Release Manager
 
 	* GCC 9.2.0 released.
