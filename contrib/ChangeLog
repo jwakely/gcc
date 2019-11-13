@@ -1,3 +1,7 @@
+2019-11-13  Janne Blomqvist  <jb@gcc.gnu.org>
+
+	* download_prerequisites: Use http instead of ftp for downloading.
+
 2020-03-04  Release Manager
 
 	* GCC 8.4.0 released.
