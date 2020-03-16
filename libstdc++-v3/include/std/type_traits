@@ -2126,32 +2126,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     struct __add_pointer_helper
     { using type = _Tp; };
 
-  template<>
-    struct __add_pointer_helper<void, false>
-    { using type = void*; };
-
-  template<>
-    struct __add_pointer_helper<const void, false>
-    { using type = const void*; };
-
-  template<>
-    struct __add_pointer_helper<volatile void, false>
-    { using type = volatile void*; };
-
-  template<>
-    struct __add_pointer_helper<const volatile void, false>
-    { using type = const volatile void*; };
-
   template<typename _Tp>
     struct __add_pointer_helper<_Tp, true>
-    { using type = _Tp*; };
-
-  template<typename _Tp>
-    struct __add_pointer_helper<_Tp&, true>
-    { using type = _Tp*; };
-
-  template<typename _Tp>
-    struct __add_pointer_helper<_Tp&&, true>
     { using type = _Tp*; };
 
   /// add_pointer
@@ -2159,6 +2135,30 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     struct add_pointer
     : public __add_pointer_helper<_Tp>
     { };
+
+  template<>
+    struct add_pointer<void>
+    { using type = void*; };
+
+  template<>
+    struct add_pointer<const void>
+    { using type = const void*; };
+
+  template<>
+    struct add_pointer<volatile void>
+    { using type = volatile void*; };
+
+  template<>
+    struct add_pointer<const volatile void>
+    { using type = const volatile void*; };
+
+  template<typename _Tp>
+    struct add_pointer<_Tp&>
+    { using type = _Tp*; };
+
+  template<typename _Tp>
+    struct add_pointer<_Tp&&>
+    { using type = _Tp*; };
 
 #if __cplusplus > 201103L
   /// Alias template for remove_pointer
