@@ -1095,18 +1095,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	"template argument must be a complete class or an unbounded array");
     };
 
+  template<typename> struct add_lvalue_reference;
+  template<typename> struct add_rvalue_reference;
+
   /// @cond undocumented
-  template<typename _Tp, bool = __is_referenceable<_Tp>::value>
-    struct __is_nothrow_copy_constructible_impl;
-
-  template<typename _Tp>
-    struct __is_nothrow_copy_constructible_impl<_Tp, false>
-    : public false_type { };
-
-  template<typename _Tp>
-    struct __is_nothrow_copy_constructible_impl<_Tp, true>
-    : public __is_nothrow_constructible_impl<_Tp, const _Tp&>
-    { };
+  template<typename _Tp,
+	   typename _Up = typename add_lvalue_reference<const _Tp>::type>
+    using __is_nothrow_copy_constructible_impl
+      = __is_nothrow_constructible_impl<_Tp, _Up>;
   /// @endcond
 
   /// is_nothrow_copy_constructible
@@ -1119,17 +1115,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     };
 
   /// @cond undocumented
-  template<typename _Tp, bool = __is_referenceable<_Tp>::value>
-    struct __is_nothrow_move_constructible_impl;
-
-  template<typename _Tp>
-    struct __is_nothrow_move_constructible_impl<_Tp, false>
-    : public false_type { };
-
-  template<typename _Tp>
-    struct __is_nothrow_move_constructible_impl<_Tp, true>
-    : public __is_nothrow_constructible_impl<_Tp, _Tp&&>
-    { };
+  template<typename _Tp,
+	   typename _Up = typename add_rvalue_reference<_Tp>::type>
+    using __is_nothrow_move_constructible_impl
+      = __is_nothrow_constructible_impl<_Tp, _Up>;
   /// @endcond
 
   /// is_nothrow_move_constructible
