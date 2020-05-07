@@ -1,0 +1,69 @@
+dist: bionic
+language: cpp
+os: linux
+
+git:
+  depth: 1
+
+matrix:
+  include:
+    - env: CHECK=''
+      addons: &builddeps
+        apt:
+          packages:
+            - build-essential
+            - libc6-dev-i386
+            - curl
+            - file
+            - flex
+            - bison
+            - libz-dev
+            - dejagnu
+    - env: CHECK=python
+      addons: *builddeps
+    - env: CHECK=debug
+      addons: *builddeps
+    - env: CHECK=parallel
+      addons: *builddeps
+
+script:
+  - |
+    set -ex
+    target=`./config.guess`
+    nproc=`nproc`
+    ./contrib/download_prerequisites --no-isl
+    mkdir objdir
+    cd objdir
+    unset CONFIG
+    if [[ $CHECK ]]
+    then
+      CONFIG=--disable-multilib
+    fi
+    if [[ $CHECK != parallel ]]
+    then
+      CONFIG="$CONFIG --disable-libgomp"
+    fi
+    ../configure --enable-languages=c,c++ --disable-bootstrap --disable-libvtv --disable-libcc1 --disable-libsanitizer --disable-libitm --with-system-zlib --without-isl --enable-multiarch $CONFIG
+    make -j $nproc
+    cd $target/libstdc++-v3
+    case $CHECK in
+      debug)
+        make check-debug -j $nproc
+        ;;
+      parallel)
+        make check -j $nproc CXXFLAGS=-fopenmp RUNTESTFLAGS='conformance.exp --target_board=unix/-D_GLIBCXX_PARALLEL'
+        # sum=testsuite/parallel/libstdc++.sum
+        ;;
+      python)
+        make check -j $nproc RUNTESTFLAGS='prettyprinters.exp xmethods.exp'
+        ;;
+      *)
+        make check RUNTESTFLAGS=abi.exp
+        (
+          cd ../../../libstdc++-v3
+          git grep -l  std=gnu.. -- ${1:-testsuite/} | grep -v 17_intro/headers/c++ | xargs sed -i -e '/^.. { dg-options "-std=gnu++.." }$/s;{ dg.*;;' -e  '/{ dg-options "/s/-std=gnu++..//'
+        )
+        make check -j $nproc RUNTESTFLAGS='conformance.exp --target_board=unix\"{-std=gnu++98,-std=gnu++11,-std=gnu++14,-std=gnu++17,-std=c++2a}{,-m32}{,-D_GLIBCXX_USE_CXX11_ABI=0}{,-D_GLIBCXX_DEBUG}\"'
+    esac
+    awk '/^(X?PASS|X?FAIL|UN|ERROR)/{counts[$1] += 1} END{ for (i in counts) printf "%-15s %d\n", i, counts[i] }' testsuite/libstdc++.sum
+    ! egrep '^(FAIL|XPASS|UNRESOLVED|ERROR)' testsuite/libstdc++.sum
