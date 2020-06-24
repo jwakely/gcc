@@ -180,13 +180,13 @@ extern int floor_log2                  (unsigned HOST_WIDE_INT);
 #  define CTZ_HWI __builtin_ctz
 # endif
 
-extern inline int
+__attribute__ ((gnu_inline)) extern inline int
 floor_log2 (unsigned HOST_WIDE_INT x)
 {
   return x ? HOST_BITS_PER_WIDE_INT - 1 - (int) CLZ_HWI (x) : -1;
 }
 
-extern inline int
+__attribute__ ((gnu_inline)) extern inline int
 exact_log2 (unsigned HOST_WIDE_INT x)
 {
   return x == (x & -x) && x ? (int) CTZ_HWI (x) : -1;
