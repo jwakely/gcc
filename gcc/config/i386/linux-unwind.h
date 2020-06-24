@@ -51,7 +51,7 @@ x86_64_fallback_frame_state (struct _Unwind_Context *context,
   if (*(unsigned char *)(pc+0) == 0x48
       && *(unsigned long *)(pc+1) == 0x050f0000000fc0c7)
     {
-      struct ucontext *uc_ = context->cfa;
+      ucontext_t *uc_ = context->cfa;
       sc = (struct sigcontext *) &uc_->uc_mcontext;
     }
   else
@@ -136,7 +136,7 @@ x86_fallback_frame_state (struct _Unwind_Context *context,
 	struct siginfo *pinfo;
 	void *puc;
 	struct siginfo info;
-	struct ucontext uc;
+	ucontext_t uc;
       } *rt_ = context->cfa;
       sc = (struct sigcontext *) &rt_->uc.uc_mcontext;
     }
