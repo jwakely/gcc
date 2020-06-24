@@ -133,9 +133,9 @@ x86_fallback_frame_state (struct _Unwind_Context *context,
     {
       struct rt_sigframe {
 	int sig;
-	struct siginfo *pinfo;
+	siginfo_t *pinfo;
 	void *puc;
-	struct siginfo info;
+	siginfo_t info;
 	ucontext_t uc;
       } *rt_ = context->cfa;
       sc = (struct sigcontext *) &rt_->uc.uc_mcontext;
