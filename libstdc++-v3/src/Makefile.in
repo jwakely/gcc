@@ -536,6 +536,17 @@ libstdc___la_LDFLAGS = \
 	-version-info $(libtool_VERSION) ${version_arg} -lm
 
 libstdc___la_LINK = $(CXXLINK) $(libstdc___la_LDFLAGS)
+@GLIBCXX_LDBL_ALT128_COMPAT_FALSE@@GLIBCXX_LDBL_COMPAT_TRUE@LTCXXCOMPILE64 = $(LTCXXCOMPILE)
+
+# Use special rules for compatibility-ldbl.cc compilation, as we need to
+# pass -mlong-double-64, and not use -mabi={ieee,ibm}longdouble.
+@GLIBCXX_LDBL_ALT128_COMPAT_TRUE@@GLIBCXX_LDBL_COMPAT_TRUE@LTCXXCOMPILE64 = \
+@GLIBCXX_LDBL_ALT128_COMPAT_TRUE@@GLIBCXX_LDBL_COMPAT_TRUE@  $(filter-out -mabi=ieeelongdouble -mabi=ibmlongdouble,$(LTCXXCOMPILE))
+
+@GLIBCXX_LDBL_ALT128_COMPAT_FALSE@@GLIBCXX_LDBL_COMPAT_TRUE@CXXCOMPILE64 = $(CXXCOMPILE)
+@GLIBCXX_LDBL_ALT128_COMPAT_TRUE@@GLIBCXX_LDBL_COMPAT_TRUE@CXXCOMPILE64 = \
+@GLIBCXX_LDBL_ALT128_COMPAT_TRUE@@GLIBCXX_LDBL_COMPAT_TRUE@  $(filter-out -mabi=ieeelongdouble -mabi=ibmlongdouble,$(CXXCOMPILE))
+
 
 # A note on compatibility and static libraries.
 #
@@ -976,13 +987,10 @@ vpath % $(top_srcdir)/src/c++98
 vpath % $(top_srcdir)/src/c++11
 vpath % $(top_srcdir)/src/c++17
 @ENABLE_FILESYSTEM_TS_TRUE@vpath % $(top_srcdir)/src/filesystem
-
-# Use special rules for compatibility-ldbl.cc compilation, as we need to
-# pass -mlong-double-64.
 @GLIBCXX_LDBL_COMPAT_TRUE@compatibility-ldbl.lo: compatibility-ldbl.cc
-@GLIBCXX_LDBL_COMPAT_TRUE@	$(LTCXXCOMPILE) $(LONG_DOUBLE_COMPAT_FLAGS) -c $<
+@GLIBCXX_LDBL_COMPAT_TRUE@	$(LTCXXCOMPILE64) $(LONG_DOUBLE_COMPAT_FLAGS) -c $<
 @GLIBCXX_LDBL_COMPAT_TRUE@compatibility-ldbl.o: compatibility-ldbl.cc
-@GLIBCXX_LDBL_COMPAT_TRUE@	$(CXXCOMPILE) $(LONG_DOUBLE_COMPAT_FLAGS) -c $<
+@GLIBCXX_LDBL_COMPAT_TRUE@	$(CXXCOMPILE64) $(LONG_DOUBLE_COMPAT_FLAGS) -c $<
 
 # Use special rules for compatibility-ldbl-alt128.cc compilation, as we need to
 # ensure it is compiled with the correct flag.

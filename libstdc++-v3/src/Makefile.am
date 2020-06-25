@@ -125,12 +125,21 @@ libstdc___la_LDFLAGS = \
 libstdc___la_LINK = $(CXXLINK) $(libstdc___la_LDFLAGS)
 
 # Use special rules for compatibility-ldbl.cc compilation, as we need to
-# pass -mlong-double-64.
+# pass -mlong-double-64, and not use -mabi={ieee,ibm}longdouble.
 if GLIBCXX_LDBL_COMPAT
+if GLIBCXX_LDBL_ALT128_COMPAT
+LTCXXCOMPILE64 = \
+  $(filter-out -mabi=ieeelongdouble -mabi=ibmlongdouble,$(LTCXXCOMPILE))
+CXXCOMPILE64 = \
+  $(filter-out -mabi=ieeelongdouble -mabi=ibmlongdouble,$(CXXCOMPILE))
+else
+LTCXXCOMPILE64 = $(LTCXXCOMPILE)
+CXXCOMPILE64 = $(CXXCOMPILE)
+endif
 compatibility-ldbl.lo: compatibility-ldbl.cc
-	$(LTCXXCOMPILE) $(LONG_DOUBLE_COMPAT_FLAGS) -c $<
+	$(LTCXXCOMPILE64) $(LONG_DOUBLE_COMPAT_FLAGS) -c $<
 compatibility-ldbl.o: compatibility-ldbl.cc
-	$(CXXCOMPILE) $(LONG_DOUBLE_COMPAT_FLAGS) -c $<
+	$(CXXCOMPILE64) $(LONG_DOUBLE_COMPAT_FLAGS) -c $<
 endif
 
 # Use special rules for compatibility-ldbl-alt128.cc compilation, as we need to
