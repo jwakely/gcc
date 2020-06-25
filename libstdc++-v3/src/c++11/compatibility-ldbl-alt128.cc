@@ -227,8 +227,9 @@ _GLIBCXX_END_NAMESPACE_VERSION
 // std::tr1::hash<long double>::operator()
 // and std::hash<long double>::operator()
 // are the same, no need to duplicate them.
-extern "C" void
+extern "C" size_t
 _ZNKSt4hashIgEclEg (void)
+  __attribute__((pure))
   __attribute__((alias ("_ZNKSt3tr14hashIgEclEg")));
 
 #endif
