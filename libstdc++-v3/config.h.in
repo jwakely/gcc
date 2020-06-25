@@ -186,9 +186,6 @@
 /* Define to 1 if you have the `frexpf' function. */
 #undef HAVE_FREXPF
 
-/* Define to 1 if you have the `frexpf128' function. */
-#undef HAVE_FREXPF128
-
 /* Define to 1 if you have the `frexpl' function. */
 #undef HAVE_FREXPL
 

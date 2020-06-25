@@ -75639,19 +75639,51 @@ $as_echo "#define _GLIBCXX_LONG_DOUBLE_COMPAT 1" >>confdefs.h
     case "$target" in
       powerpc*-*-linux*)
 	LONG_DOUBLE_COMPAT_FLAGS="$LONG_DOUBLE_COMPAT_FLAGS -mno-gnu-attribute"
-        # Check for IEEE128 support in libc:
-        for ac_func in frexpf128
-do :
-  ac_fn_c_check_func "$LINENO" "frexpf128" "ac_cv_func_frexpf128"
-if test "x$ac_cv_func_frexpf128" = xyes; then :
-  cat >>confdefs.h <<_ACEOF
-#define HAVE_FREXPF128 1
+        # Check for IEEE128 support in libm:
+        { $as_echo "$as_me:${as_lineno-$LINENO}: checking for frexpf128 in -lm" >&5
+$as_echo_n "checking for frexpf128 in -lm... " >&6; }
+if ${ac_cv_lib_m_frexpf128+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_check_lib_save_LIBS=$LIBS
+LIBS="-lm  $LIBS"
+if test x$gcc_no_link = xyes; then
+  as_fn_error $? "Link tests are not allowed after GCC_NO_EXECUTABLES." "$LINENO" 5
+fi
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char frexpf128 ();
+int
+main ()
+{
+return frexpf128 ();
+  ;
+  return 0;
+}
 _ACEOF
- ac_ldbl_ieee128_in_libc=yes
+if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_lib_m_frexpf128=yes
+else
+  ac_cv_lib_m_frexpf128=no
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_m_frexpf128" >&5
+$as_echo "$ac_cv_lib_m_frexpf128" >&6; }
+if test "x$ac_cv_lib_m_frexpf128" = xyes; then :
+  ac_ldbl_ieee128_in_libc=yes
 else
   ac_ldbl_ieee128_in_libc=no
 fi
-done
 
         if test $ac_ldbl_ieee128_in_libc = yes; then
           # Determine which long double format is the compiler's default:
@@ -75678,7 +75710,7 @@ fi
 rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
           # Library objects should use IEEE128 long double format by default.
           if test "$ac_ldbl_ieee128_default" = no; then
-            # Add -mabi=ieeelongdouble to ensire that.
+            # Add -mabi=ieeelongdouble to ensure that.
             LONG_DOUBLE_128_FLAGS="-mabi=ieeelongdouble -mno-gnu-attribute -Wno-psabi"
           fi
           # Except for the ones that explicitly use these flags:

@@ -426,10 +426,10 @@ case "$target" in
     case "$target" in
       powerpc*-*-linux*)
 	LONG_DOUBLE_COMPAT_FLAGS="$LONG_DOUBLE_COMPAT_FLAGS -mno-gnu-attribute"
-        # Check for IEEE128 support in libc:
-        AC_CHECK_FUNCS(frexpf128,
-                       [ac_ldbl_ieee128_in_libc=yes],
-                       [ac_ldbl_ieee128_in_libc=no])
+        # Check for IEEE128 support in libm:
+        AC_CHECK_LIB(m, frexpf128,
+                     [ac_ldbl_ieee128_in_libc=yes],
+                     [ac_ldbl_ieee128_in_libc=no])
         if test $ac_ldbl_ieee128_in_libc = yes; then
           # Determine which long double format is the compiler's default:
           AC_TRY_COMPILE(, [
@@ -439,7 +439,7 @@ case "$target" in
           ], [ac_ldbl_ieee128_default=yes], [ac_ldbl_ieee128_default=no])
           # Library objects should use IEEE128 long double format by default.
           if test "$ac_ldbl_ieee128_default" = no; then
-            # Add -mabi=ieeelongdouble to ensire that.
+            # Add -mabi=ieeelongdouble to ensure that.
             LONG_DOUBLE_128_FLAGS="-mabi=ieeelongdouble -mno-gnu-attribute -Wno-psabi"
           fi
           # Except for the ones that explicitly use these flags:
