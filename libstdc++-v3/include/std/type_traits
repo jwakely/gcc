@@ -596,8 +596,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   /// is_object
   template<typename _Tp>
     struct is_object
-    : public __not_<__or_<is_function<_Tp>, is_reference<_Tp>,
-                          is_void<_Tp>>>::type
+    : public __not_<__or_<is_void<_Tp>, is_function<_Tp>>>::type
+    { };
+
+  template<typename _Tp>
+    struct is_object<_Tp&>
+    : false_type
+    { };
+
+  template<typename _Tp>
+    struct is_object<_Tp&&>
+    : false_type
     { };
 
   template<typename>
@@ -606,8 +615,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   /// is_scalar
   template<typename _Tp>
     struct is_scalar
-    : __bool_constant<is_integral<_Tp>::value || is_floating_point<_Tp>::value
-                      || __is_enum(_Tp)>
+    : public __and_<__not_<is_class<_Tp>>, __not_<is_union<_Tp>>,
+		    is_object<_Tp>>::type
     { };
 
   template<typename _Tp>
@@ -626,18 +635,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     { };
 
   template<typename _Tp>
-    struct is_scalar<_Tp*>
-    : true_type
+    struct is_scalar<_Tp[]>
+    : false_type
     { };
 
-  template<typename _Tp, typename _Class>
-    struct is_scalar<_Tp _Class::*>
-    : true_type
-    { };
-
-  template<>
-    struct is_scalar<decltype(nullptr)>
-    : true_type
+  template<typename _Tp, size_t _Num>
+    struct is_scalar<_Tp[_Num]>
+    : false_type
     { };
 
   /// is_compound
