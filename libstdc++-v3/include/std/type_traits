@@ -606,8 +606,38 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   /// is_scalar
   template<typename _Tp>
     struct is_scalar
-    : public __or_<is_arithmetic<_Tp>, is_enum<_Tp>, is_pointer<_Tp>,
-                   is_member_pointer<_Tp>, is_null_pointer<_Tp>>::type
+    : __bool_constant<is_integral<_Tp>::value || is_floating_point<_Tp>::value
+                      || __is_enum(_Tp)>
+    { };
+
+  template<typename _Tp>
+    struct is_scalar<const _Tp>
+    : is_scalar<_Tp>::type
+    { };
+
+  template<typename _Tp>
+    struct is_scalar<volatile _Tp>
+    : is_scalar<_Tp>::type
+    { };
+
+  template<typename _Tp>
+    struct is_scalar<const volatile _Tp>
+    : is_scalar<_Tp>::type
+    { };
+
+  template<typename _Tp>
+    struct is_scalar<_Tp*>
+    : true_type
+    { };
+
+  template<typename _Tp, typename _Class>
+    struct is_scalar<_Tp _Class::*>
+    : true_type
+    { };
+
+  template<>
+    struct is_scalar<decltype(nullptr)>
+    : true_type
     { };
 
   /// is_compound
