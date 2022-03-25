@@ -1095,59 +1095,101 @@ namespace __expected
 	}
 
       template<typename _Fn>
-	requires __same_val<__expected::__result<_Fn, _Er&>>
-	      && is_copy_constructible_v<__expected::__result<_Fn, _Er&>>
+	requires is_void_v<__expected::__result<_Fn, _Er&>>
+	  || (__same_val<__expected::__result<_Fn, _Er&>>
+	      && is_copy_constructible_v<__expected::__result<_Fn, _Er&>>)
 	constexpr auto
 	or_else(_Fn&& __f) &
 	{
 	  using _Res = __expected::__result<_Fn, _Er&>;
-	  static_assert(__expected::__is_expected<_Res>);
-	  if (has_value())
-	    return _Res(in_place, value());
+	  if constexpr (is_void_v<_Res>)
+	    {
+	      if (!has_value())
+		std::__invoke(std::forward<_Fn>(__f), error());
+	      return *this;
+	    }
 	  else
-	    return std::__invoke(std::forward<_Fn>(__f), error());
+	    {
+	      static_assert(__expected::__is_expected<_Res>);
+	      if (has_value())
+		return _Res(in_place, value());
+	      else
+		return std::__invoke(std::forward<_Fn>(__f), error());
+	    }
 	}
 
       template<typename _Fn>
-	requires __same_val<__expected::__result<_Fn, _Er&&>>
-	      && is_move_constructible_v<__expected::__result<_Fn, _Er&&>>
+	requires is_void_v<__expected::__result<_Fn, _Er&&>>
+	  || (__same_val<__expected::__result<_Fn, _Er&&>>
+	      && is_copy_constructible_v<__expected::__result<_Fn, _Er&&>>)
 	constexpr auto
 	or_else(_Fn&& __f) &&
 	{
 	  using _Res = __expected::__result<_Fn, _Er&&>;
-	  static_assert(__expected::__is_expected<_Res>);
-	  if (has_value())
-	    return _Res(in_place, std::move(value()));
+	  if constexpr (is_void_v<_Res>)
+	    {
+	      if (!has_value())
+		std::__invoke(std::forward<_Fn>(__f), std::move(error()));
+	      return std::move(*this);
+	    }
 	  else
-	    return std::__invoke(std::forward<_Fn>(__f), std::move(error()));
+	    {
+	      static_assert(__expected::__is_expected<_Res>);
+	      if (has_value())
+		return _Res(in_place, std::move(value()));
+	      else
+		return std::__invoke(std::forward<_Fn>(__f),
+				     std::move(error()));
+	    }
 	}
 
       template<typename _Fn>
-	requires __same_val<__expected::__result<_Fn, const _Er&>>
-	      && is_copy_constructible_v<__expected::__result<_Fn, const _Er&>>
+	requires is_void_v<__expected::__result<_Fn, const _Er&>>
+	  || (__same_val<__expected::__result<_Fn, const _Er&>>
+	      && is_copy_constructible_v<__expected::__result<_Fn, const _Er&>>)
 	constexpr auto
 	or_else(_Fn&& __f) const &
 	{
 	  using _Res = __expected::__result<_Fn, const _Er&>;
-	  static_assert(__expected::__is_expected<_Res>);
-	  if (has_value())
-	    return _Res(in_place, value());
+	  if constexpr (is_void_v<_Res>)
+	    {
+	      if (!has_value())
+		std::__invoke(std::forward<_Fn>(__f), error());
+	      return *this;
+	    }
 	  else
-	    return std::__invoke(std::forward<_Fn>(__f), error());
+	    {
+	      static_assert(__expected::__is_expected<_Res>);
+	      if (has_value())
+		return _Res(in_place, value());
+	      else
+		return std::__invoke(std::forward<_Fn>(__f), error());
+	    }
 	}
 
       template<typename _Fn>
-	requires __same_val<__expected::__result<_Fn, const _Er&&>>
-	      && is_move_constructible_v<__expected::__result<_Fn, const _Er&&>>
+	requires is_void_v<__expected::__result<_Fn, const _Er&&>>
+	  || (__same_val<__expected::__result<_Fn, const _Er&&>>
+	      && is_copy_constructible_v<__expected::__result<_Fn, const _Er&&>>)
 	constexpr auto
 	or_else(_Fn&& __f) const &&
 	{
 	  using _Res = __expected::__result<_Fn, _Er&&>;
-	  static_assert(__expected::__is_expected<_Res>);
-	  if (has_value())
-	    return _Res(in_place, std::move(value()));
+	  if constexpr (is_void_v<_Res>)
+	    {
+	      if (!has_value())
+		std::__invoke(std::forward<_Fn>(__f), std::move(error()));
+	      return std::move(*this);
+	    }
 	  else
-	    return std::__invoke(std::forward<_Fn>(__f), std::move(error()));
+	    {
+	      static_assert(__expected::__is_expected<_Res>);
+	      if (has_value())
+		return _Res(in_place, std::move(value()));
+	      else
+		return std::__invoke(std::forward<_Fn>(__f),
+				     std::move(error()));
+	    }
 	}
 
       template<typename _Fn>
@@ -1664,59 +1706,101 @@ namespace __expected
 	}
 
       template<typename _Fn>
-	requires __same_val<__expected::__result<_Fn, _Er&>>
-	      && is_copy_constructible_v<__expected::__result<_Fn, _Er&>>
+	requires is_void_v<__expected::__result<_Fn, _Er&>>
+	  || (__same_val<__expected::__result<_Fn, _Er&>>
+	      && is_copy_constructible_v<__expected::__result<_Fn, _Er&>>)
 	constexpr auto
 	or_else(_Fn&& __f) &
 	{
 	  using _Res = __expected::__result<_Fn, _Er&>;
-	  static_assert(__expected::__is_expected<_Res>);
-	  if (has_value())
-	    return _Res();
+	  if constexpr (is_void_v<_Res>)
+	    {
+	      if (!has_value())
+		std::__invoke(std::forward<_Fn>(__f), error());
+	      return *this;
+	    }
 	  else
-	    return std::__invoke(std::forward<_Fn>(__f), error());
+	    {
+	      static_assert(__expected::__is_expected<_Res>);
+	      if (has_value())
+		return _Res();
+	      else
+		return std::__invoke(std::forward<_Fn>(__f), error());
+	    }
 	}
 
       template<typename _Fn>
-	requires __same_val<__expected::__result<_Fn, _Er&&>>
-	      && is_move_constructible_v<__expected::__result<_Fn, _Er&&>>
+	requires is_void_v<__expected::__result<_Fn, _Er&&>>
+	  || (__same_val<__expected::__result<_Fn, _Er&&>>
+	      && is_copy_constructible_v<__expected::__result<_Fn, _Er&&>>)
 	constexpr auto
 	or_else(_Fn&& __f) &&
 	{
 	  using _Res = __expected::__result<_Fn, _Er&&>;
-	  static_assert(__expected::__is_expected<_Res>);
-	  if (has_value())
-	    return _Res();
+	  if constexpr (is_void_v<_Res>)
+	    {
+	      if (!has_value())
+		std::__invoke(std::forward<_Fn>(__f), std::move(error()));
+	      return *this;
+	    }
 	  else
-	    return std::__invoke(std::forward<_Fn>(__f), std::move(error()));
+	    {
+	      static_assert(__expected::__is_expected<_Res>);
+	      if (has_value())
+		return _Res();
+	      else
+		return std::__invoke(std::forward<_Fn>(__f),
+				     std::move(error()));
+	    }
 	}
 
       template<typename _Fn>
-	requires __same_val<__expected::__result<_Fn, const _Er&>>
-	      && is_copy_constructible_v<__expected::__result<_Fn, const _Er&>>
+	requires is_void_v<__expected::__result<_Fn, const _Er&>>
+	  || (__same_val<__expected::__result<_Fn, const _Er&>>
+	      && is_copy_constructible_v<__expected::__result<_Fn, const _Er&>>)
 	constexpr auto
 	or_else(_Fn&& __f) const &
 	{
 	  using _Res = __expected::__result<_Fn, const _Er&>;
-	  static_assert(__expected::__is_expected<_Res>);
-	  if (has_value())
-	    return _Res();
+	  if constexpr (is_void_v<_Res>)
+	    {
+	      if (!has_value())
+		std::__invoke(std::forward<_Fn>(__f), error());
+	      return *this;
+	    }
 	  else
-	    return std::__invoke(std::forward<_Fn>(__f), error());
+	    {
+	      static_assert(__expected::__is_expected<_Res>);
+	      if (has_value())
+		return _Res();
+	      else
+		return std::__invoke(std::forward<_Fn>(__f), error());
+	    }
 	}
 
       template<typename _Fn>
-	requires __same_val<__expected::__result<_Fn, const _Er&&>>
-	      && is_move_constructible_v<__expected::__result<_Fn, const _Er&&>>
+	requires is_void_v<__expected::__result<_Fn, const _Er&&>>
+	  || (__same_val<__expected::__result<_Fn, const _Er&&>>
+	      && is_copy_constructible_v<__expected::__result<_Fn, const _Er&&>>)
 	constexpr auto
 	or_else(_Fn&& __f) const &&
 	{
 	  using _Res = __expected::__result<_Fn, _Er&&>;
-	  static_assert(__expected::__is_expected<_Res>);
-	  if (has_value())
-	    return _Res();
+	  if constexpr (is_void_v<_Res>)
+	    {
+	      if (!has_value())
+		std::__invoke(std::forward<_Fn>(__f), std::move(error()));
+	      return *this;
+	    }
 	  else
-	    return std::__invoke(std::forward<_Fn>(__f), std::move(error()));
+	    {
+	      static_assert(__expected::__is_expected<_Res>);
+	      if (has_value())
+		return _Res();
+	      else
+		return std::__invoke(std::forward<_Fn>(__f),
+				     std::move(error()));
+	    }
 	}
 
       template<typename _Fn>
