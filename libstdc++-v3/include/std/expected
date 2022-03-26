@@ -256,8 +256,9 @@ namespace __expected
       static_assert( is_nothrow_move_constructible_v<_Tp> );
 
       constexpr explicit
-      _Guard(_Tp* __x) : _M_guarded(__x), _M_tmp(std::move(*__x)) // nothrow
-      { std::destroy_at(__x); }
+      _Guard(_Tp& __x)
+      : _M_guarded(__builtin_addressof(__x)), _M_tmp(std::move(__x)) // nothrow
+      { std::destroy_at(_M_guarded); }
 
       constexpr
       ~_Guard()
@@ -300,252 +301,23 @@ namespace __expected
 	}
       else
 	{
-	  _Guard<_Up> __guard(__oldval);
+	  _Guard<_Up> __guard(*__oldval);
 	  std::construct_at(__newval, std::forward<_Vp>(__arg)); // might throw
 	  __guard.release();
 	}
     }
-
-  template<typename _Tp, typename _Up>
-    struct _Base
-    {
-      static_assert( __expected::__can_be_unexpected<_Up> );
-
-      // Creates an invalid object that needs its invariant established
-      // by calling _M_construct.
-      constexpr _Base() = default;
-
-      constexpr ~_Base() = default;
-
-      _Base& operator=(const _Base&) = delete;
-
-      [[__gnu__::__always_inline__]]
-      constexpr auto
-      _M_val() noexcept
-      {
-	return __builtin_addressof(_M_storage._M_val);
-      }
-
-      [[__gnu__::__always_inline__]]
-      constexpr auto
-      _M_val() const noexcept
-      {
-	return __builtin_addressof(_M_storage._M_val);
-      }
-
-      [[__gnu__::__always_inline__]]
-      constexpr _Up*
-      _M_unex() noexcept
-      { return __builtin_addressof(_M_storage._M_unex); }
-
-      [[__gnu__::__always_inline__]]
-      constexpr const _Up*
-      _M_unex() const noexcept
-      { return __builtin_addressof(_M_storage._M_unex); }
-
-      template<typename... _Args>
-	constexpr void
-	_M_construct_val(_Args&&... __args)
-	noexcept(is_nothrow_constructible_v<_Tp, _Args...>)
-	{
-	  static_assert(!is_void_v<_Tp>);
-
-	  std::construct_at(_M_val(), std::forward<_Args>(__args)...);
-	  _M_has_value = true;
-	}
-
-      template<typename... _Args>
-	constexpr void
-	_M_construct_unex(_Args&&... __args)
-	noexcept(is_nothrow_constructible_v<_Up, _Args...>)
-	{
-	  std::construct_at(_M_unex(), std::forward<_Args>(__args)...);
-	  _M_has_value = false;
-	}
-
-      // Precondition: !this->_M_has_value
-      template<typename _Vp>
-	constexpr void
-	_M_assign_val(_Vp&& __v)
-	{
-	  static_assert(!is_void_v<_Tp>);
-
-	  __expected::__reinit(_M_val(), _M_unex(), std::forward<_Vp>(__v));
-	  _M_has_value = true;
-	}
-
-      // Precondition: this->_M_has_value
-      template<typename _Vp>
-	constexpr void
-	_M_assign_unex(_Vp&& __v)
-	{
-	  static_assert(!is_void_v<_Tp>);
-
-	  __expected::__reinit(_M_unex(), _M_val(), std::forward<_Vp>(__v));
-	  _M_has_value = false;
-	}
-
-      // Swap two expected objects when both have values.
-      // Precondition: this->_M_has_value && __v._M_has_value
-      constexpr void
-      _M_swap_val(_Base& __rhs)
-      {
-	if constexpr (!is_void_v<_Tp>)
-	  {
-	    if (__builtin_addressof(__rhs) != this) [[likely]]
-	      {
-		using std::swap;
-		swap(_M_storage._M_val, __rhs._M_storage._M_val);
-	      }
-	  }
-      }
-
-      // Swap two expected objects when neither has a value.
-      // Precondition: !this->_M_has_value && !__e._M_has_value
-      constexpr void
-      _M_swap_unex(_Base& __rhs)
-      {
-	if (__builtin_addressof(__rhs) != this) [[likely]]
-	  {
-	    using std::swap;
-	    swap(_M_storage._M_unex, __rhs._M_storage._M_unex);
-	  }
-      }
-
-      // Swap two expected objects when only one has a value.
-      // Precondition: this->_M_has_value && !__e._M_has_value
-      constexpr void
-      _M_swap_val_unex(_Base& __rhs)
-      noexcept(__and_v<is_nothrow_move_constructible<_Up>,
-		       __or_<is_void<_Tp>,
-			     is_nothrow_move_constructible<_Tp>>>)
-      {
-	if constexpr (is_void_v<_Tp>)
-	  {
-	    _M_construct_unex(std::move(*__rhs._M_unex())); // might throw
-	    __rhs._M_destroy_unex();
-	    __rhs._M_has_value = true;
-	  }
-	else if constexpr (is_nothrow_move_constructible_v<_Up>)
-	  {
-	    __expected::_Guard<_Up> __guard(__rhs._M_unex());
-	    __rhs._M_construct_val(std::move(*this->_M_val())); // might throw
-	    _M_destroy_val();
-	    _M_construct_unex(__guard.release()); // nothrow
-	  }
-	else
-	  {
-	    __expected::_Guard<_Tp> __guard(__rhs._M_val());
-	    _M_construct_unex(std::move(*__rhs._M_unex())); // might throw
-	    __rhs._M_destroy_unex();
-	    __rhs.construct_val(__guard.release()); // nothrow
-	  }
-      }
-
-      // Only called after one of _M_val or _M_unex has been constructed.
-      [[__gnu__::__always_inline__]]
-      constexpr void
-      _M_destroy() noexcept
-      {
-	if (_M_has_value)
-	  _M_destroy_val();
-	else
-	  _M_destroy_unex();
-      }
-
-      [[__gnu__::__always_inline__]]
-      constexpr void
-      _M_destroy_val() noexcept
-      {
-	if constexpr (!is_void_v<_Tp>)
-	  std::destroy_at(_M_val());
-      }
-
-      [[__gnu__::__always_inline__]]
-      constexpr void
-      _M_destroy_unex() noexcept
-      { std::destroy_at(_M_unex()); }
-
-      struct _Empty_byte { };
-
-      template<typename _Tp1, typename _Up1>
-	struct _Storage
-	{
-	  constexpr _Storage() noexcept : _M_invalid() { }
-	  constexpr ~_Storage() { } // non-trivial destructor
-
-	  _Storage(const _Storage&) = default;
-	  _Storage(_Storage&&) = default;
-	  _Storage& operator=(const _Storage&) = default;
-	  _Storage& operator=(_Storage&&) = default;
-
-	  union {
-	    _Empty_byte _M_invalid;
-	    _Tp1 _M_val;
-	    _Up1 _M_unex;
-	  };
-	};
-
-      template<typename _Tp1, typename _Up1>
-	requires is_trivially_destructible_v<_Tp1>
-	  && is_trivially_destructible_v<_Up1>
-	struct _Storage<_Tp1, _Up1>
-	{
-	  constexpr _Storage() noexcept : _M_invalid() { }
-	  constexpr ~_Storage() = default; // trivial destructor
-
-	  union {
-	    _Empty_byte _M_invalid;
-	    _Tp1 _M_val;
-	    _Up1 _M_unex;
-	  };
-	};
-
-      template<typename _Up1>
-	struct _Storage<void, _Up1>
-	{
-	  constexpr _Storage() noexcept : _M_invalid() { }
-	  constexpr ~_Storage() { } // non-trivial destructor
-
-	  _Storage(const _Storage&) = default;
-	  _Storage(_Storage&&) = default;
-	  _Storage& operator=(const _Storage&) = default;
-	  _Storage& operator=(_Storage&&) = default;
-
-	  union {
-	    _Empty_byte _M_invalid;
-	    _Up1 _M_unex;
-	  };
-	};
-
-      template<typename _Up1>
-	requires is_trivially_destructible_v<_Up1>
-	struct _Storage<void, _Up1>
-	{
-	  constexpr _Storage() noexcept : _M_invalid() { }
-	  constexpr ~_Storage() = default; // trivial destructor
-
-	  union {
-	    _Empty_byte _M_invalid;
-	    _Up1 _M_unex;
-	  };
-	};
-
-      _Storage<_Tp, _Up> _M_storage;
-      bool _M_has_value = false;
-    };
 }
 /// @endcond
 
   template<typename _Tp, typename _Er>
     class expected
-    : private __expected::_Base<_Tp, _Er>
     {
       static_assert( ! is_reference_v<_Tp> );
       static_assert( ! is_function_v<_Tp> );
       static_assert( ! is_same_v<remove_cv_t<_Tp>, in_place_t> );
       static_assert( ! is_same_v<remove_cv_t<_Tp>, unexpect_t> );
       static_assert( ! __expected::__is_unexpected<remove_cv_t<_Tp>> );
+      static_assert( __expected::__can_be_unexpected<_Er> );
 
       template<typename _Up, typename _Err, typename _Unex = unexpected<_Er>>
 	static constexpr bool __cons_from_expected
@@ -589,7 +361,8 @@ namespace __expected
       expected()
       noexcept(is_nothrow_default_constructible_v<_Tp>)
       requires is_default_constructible_v<_Tp>
-      { this->_M_construct_val(); }
+      : _M_val(), _M_has_value(true)
+      { }
 
       expected(const expected&) = default;
 
@@ -600,11 +373,12 @@ namespace __expected
       requires is_copy_constructible_v<_Tp> && is_copy_constructible_v<_Er>
       && (!is_trivially_copy_constructible_v<_Tp>
 	  || !is_trivially_copy_constructible_v<_Er>)
+      : _M_invalid(), _M_has_value(__x._M_has_value)
       {
-	if (__x.has_value())
-	  this->_M_construct_val(*__x._M_val());
+	if (_M_has_value)
+	  std::construct_at(__builtin_addressof(_M_val), __x._M_val);
 	else
-	  this->_M_construct_unex(*__x._M_unex());
+	  std::construct_at(__builtin_addressof(_M_unex), __x._M_unex);
       }
 
       expected(expected&&) = default;
@@ -616,11 +390,14 @@ namespace __expected
       requires is_move_constructible_v<_Tp> && is_move_constructible_v<_Er>
       && (!is_trivially_move_constructible_v<_Tp>
 	  || !is_trivially_move_constructible_v<_Er>)
+      : _M_invalid(), _M_has_value(__x._M_has_value)
       {
-	if (__x.has_value())
-	  this->_M_construct_val(std::move(*__x._M_val()));
+	if (_M_has_value)
+	  std::construct_at(__builtin_addressof(_M_val),
+			    std::move(__x)._M_val);
 	else
-	  this->_M_construct_unex(std::move(*__x._M_unex()));
+	  std::construct_at(__builtin_addressof(_M_unex),
+			    std::move(__x)._M_unex);
       }
 
       template<typename _Up, typename _Gr>
@@ -631,11 +408,12 @@ namespace __expected
 	expected(const expected<_Up, _Gr>& __x)
 	noexcept(__and_v<is_nothrow_constructible<_Tp, const _Up&>,
 			 is_nothrow_constructible<_Er, const _Gr&>>)
+	: _M_invalid(), _M_has_value(__x._M_has_value)
 	{
-	  if (__x.has_value())
-	    this->_M_construct_val(*__x._M_val());
+	  if (_M_has_value)
+	    std::construct_at(__builtin_addressof(_M_val), __x._M_val);
 	  else
-	    this->_M_construct_unex(*__x._M_unex());
+	    std::construct_at(__builtin_addressof(_M_unex), __x._M_unex);
 	}
 
       template<typename _Up, typename _Gr>
@@ -646,11 +424,14 @@ namespace __expected
 	expected(expected<_Up, _Gr>&& __x)
 	noexcept(__and_v<is_nothrow_constructible<_Tp, _Up>,
 			 is_nothrow_constructible<_Er, _Gr>>)
+	: _M_invalid(), _M_has_value(__x._M_has_value)
 	{
-	  if (__x.has_value())
-	    this->_M_construct_val(std::move(*__x._M_val()));
+	  if (_M_has_value)
+	    std::construct_at(__builtin_addressof(_M_val),
+			      std::move(__x)._M_val);
 	  else
-	    this->_M_construct_unex(std::move(*__x._M_unex()));
+	    std::construct_at(__builtin_addressof(_M_unex),
+			      std::move(__x)._M_unex);
 	}
 
       template<typename _Up = _Tp>
@@ -661,36 +442,32 @@ namespace __expected
 	constexpr explicit(!is_convertible_v<_Up, _Tp>)
 	expected(_Up&& __v)
 	noexcept(is_nothrow_constructible_v<_Tp, _Up>)
-	{
-	  this->_M_construct_val(std::forward<_Up>(__v));
-	}
+	: _M_val(std::forward<_Up>(__v)), _M_has_value(true)
+	{ }
 
       template<typename _Gr = _Er>
 	requires is_constructible_v<_Er, const _Gr&>
 	constexpr explicit(!is_convertible_v<const _Gr&, _Er>)
 	expected(const unexpected<_Gr>& __u)
 	noexcept(is_nothrow_constructible_v<_Er, const _Gr&>)
-	{
-	  this->_M_construct_unex(__u.error());
-	}
+	: _M_unex(__u.error()), _M_has_value(false)
+	{ }
 
       template<typename _Gr = _Er>
 	requires is_constructible_v<_Er, _Gr>
 	constexpr explicit(!is_convertible_v<_Gr, _Er>)
 	expected(unexpected<_Gr>&& __u)
 	noexcept(is_nothrow_constructible_v<_Er, _Gr>)
-	{
-	  this->_M_construct_unex(std::move(__u.error()));
-	}
+	: _M_unex(std::move(__u).error()), _M_has_value(false)
+	{ }
 
       template<typename... _Args>
 	requires is_constructible_v<_Tp, _Args...>
 	constexpr explicit
 	expected(in_place_t, _Args&&... __args)
 	noexcept(is_nothrow_constructible_v<_Tp, _Args...>)
-	{
-	  this->_M_construct_val(std::forward<_Args>(__args)...);
-	}
+	: _M_val(std::forward<_Args>(__args)...), _M_has_value(true)
+	{ }
 
       template<typename _Up, typename... _Args>
 	requires is_constructible_v<_Tp, initializer_list<_Up>&, _Args...>
@@ -698,18 +475,16 @@ namespace __expected
 	expected(in_place_t, initializer_list<_Up> __il, _Args&&... __args)
 	noexcept(is_nothrow_constructible_v<_Tp, initializer_list<_Up>&,
 					    _Args...>)
-	{
-	  this->_M_construct_val(__il, std::forward<_Args>(__args)...);
-	}
+	: _M_val(__il, std::forward<_Args>(__args)...), _M_has_value(true)
+	{ }
 
       template<typename... _Args>
 	requires is_constructible_v<_Er, _Args...>
 	constexpr explicit
 	expected(unexpect_t, _Args&&... __args)
 	noexcept(is_nothrow_constructible_v<_Er, _Args...>)
-	{
-	  this->_M_construct_unex(std::forward<_Args>(__args)...);
-	}
+	: _M_unex(std::forward<_Args>(__args)...), _M_has_value(false)
+	{ }
 
       template<typename _Up, typename... _Args>
 	requires is_constructible_v<_Er, initializer_list<_Up>&, _Args...>
@@ -717,16 +492,20 @@ namespace __expected
 	expected(unexpect_t, initializer_list<_Up> __il, _Args&&... __args)
 	noexcept(is_nothrow_constructible_v<_Er, initializer_list<_Up>&,
 					    _Args...>)
-	{
-	  this->_M_construct_unex(__il, std::forward<_Args>(__args)...);
-	}
+	: _M_unex(__il, std::forward<_Args>(__args)...), _M_has_value(false)
+	{ }
 
       constexpr ~expected() = default;
 
       constexpr ~expected()
       requires (!is_trivially_destructible_v<_Tp>)
 	    || (!is_trivially_destructible_v<_Er>)
-      { this->_M_destroy(); }
+      {
+	if (_M_has_value)
+	  std::destroy_at(__builtin_addressof(_M_val));
+	else
+	  std::destroy_at(__builtin_addressof(_M_unex));
+      }
 
       // assignment
 
@@ -746,16 +525,16 @@ namespace __expected
 	if (this->has_value())
 	  {
 	    if (__x.has_value())
-	      *this->_M_val() = *__x._M_val();
+	      _M_val = __x._M_val;
 	    else
-	      this->_M_assign_unex(*__x._M_unex());
+	      this->_M_assign_unex(__x._M_unex);
 	  }
 	else
 	  {
 	    if (__x.has_value())
-	      this->_M_assign_val(*__x._M_val());
+	      this->_M_assign_val(__x._M_val);
 	    else
-	      *this->_M_unex() = *__x._M_unex();
+	      _M_unex = __x._M_unex;
 	  }
 	return *this;
       }
@@ -774,16 +553,16 @@ namespace __expected
 	if (this->has_value())
 	  {
 	    if (__x.has_value())
-	      *this->_M_val() = std::move(*__x._M_val());
+	      _M_val = std::move(__x._M_val);
 	    else
-	      this->_M_assign_unex(std::move(*__x._M_unex()));
+	      this->_M_assign_unex(std::move(__x._M_unex));
 	  }
 	else
 	  {
 	    if (__x.has_value())
-	      this->_M_assign_val(std::move(*__x._M_val()));
+	      this->_M_assign_val(std::move(__x._M_val));
 	    else
-	      *this->_M_unex() = std::move(*__x._M_unex());
+	      _M_unex = std::move(__x._M_unex);
 	  }
 	return *this;
       }
@@ -798,8 +577,8 @@ namespace __expected
 	constexpr expected&
 	operator=(_Up&& __v)
 	{
-	  if (this->has_value())
-	    *this->_M_val() = std::forward<_Up>(__v);
+	  if (_M_has_value)
+	    _M_val = std::forward<_Up>(__v);
 	  else
 	    this->_M_assign_val(std::forward<_Up>(__v));
 	  return *this;
@@ -814,10 +593,10 @@ namespace __expected
 	constexpr expected&
 	operator=(const unexpected<_Gr>& __e)
 	{
-	  if (this->has_value())
+	  if (_M_has_value)
 	    this->_M_assign_unex(__e.error());
 	  else
-	    *this->_M_unex() = __e.error();
+	    _M_unex = __e.error();
 	  return *this;
 	}
 
@@ -830,10 +609,10 @@ namespace __expected
 	constexpr expected&
 	operator=(unexpected<_Gr>&& __e)
 	{
-	  if (this->has_value())
+	  if (_M_has_value)
 	    this->_M_assign_unex(std::move(__e).error());
 	  else
-	    *this->_M_unex() = std::move(__e.error());
+	    _M_unex = std::move(__e).error();
 	  return *this;
 	}
 
@@ -844,9 +623,16 @@ namespace __expected
 	constexpr _Tp&
 	emplace(_Args&&... __args) noexcept
 	{
-	  this->_M_destroy();
-	  this->_M_construct_val(std::forward<_Args>(__args)...);
-	  return *this->_M_val();
+	  if (_M_has_value)
+	    std::destroy_at(__builtin_addressof(_M_val));
+	  else
+	    {
+	      std::destroy_at(__builtin_addressof(_M_unex));
+	      _M_has_value = true;
+	    }
+	  std::construct_at(__builtin_addressof(_M_val),
+			    std::forward<_Args>(__args)...);
+	  return _M_val;
 	}
 
       template<typename _Up, typename... _Args>
@@ -855,9 +641,16 @@ namespace __expected
 	constexpr _Tp&
 	emplace(initializer_list<_Up> __il, _Args&&... __args) noexcept
 	{
-	  this->_M_destroy();
-	  this->_M_construct_val(__il, std::forward<_Args>(__args)...);
-	  return *this->_M_val();
+	  if (_M_has_value)
+	    std::destroy_at(__builtin_addressof(_M_val));
+	  else
+	    {
+	      std::destroy_at(__builtin_addressof(_M_unex));
+	      _M_has_value = true;
+	    }
+	  std::construct_at(__builtin_addressof(_M_val),
+			    __il, std::forward<_Args>(__args)...);
+	  return _M_val;
 	}
 
       // swap
@@ -873,19 +666,25 @@ namespace __expected
 	    && (is_nothrow_move_constructible_v<_Tp>
 		|| is_nothrow_move_constructible_v<_Er>)
       {
-	if (this->has_value())
+	if (_M_has_value)
 	  {
-	    if (__x.has_value())
-	      this->_M_swap_val(__x);
+	    if (__x._M_has_value)
+	      {
+		using std::swap;
+		swap(_M_val, __x._M_val);
+	      }
 	    else
 	      this->_M_swap_val_unex(__x);
 	  }
 	else
 	  {
-	    if (__x.has_value())
+	    if (__x._M_has_value)
 	      __x._M_swap_val_unex(*this);
 	    else
-	      this->_M_swap_unex(__x);
+	      {
+		using std::swap;
+		swap(_M_unex, __x._M_unex);
+	      }
 	  }
       }
 
@@ -895,117 +694,117 @@ namespace __expected
       constexpr const _Tp*
       operator->() const noexcept
       {
-	__glibcxx_assert(has_value());
-	return this->_M_val();
+	__glibcxx_assert(_M_has_value);
+	return __builtin_addressof(_M_val);
       }
 
       [[nodiscard]]
       constexpr _Tp*
       operator->() noexcept
       {
-	__glibcxx_assert(has_value());
-	return this->_M_val();
+	__glibcxx_assert(_M_has_value);
+	return __builtin_addressof(_M_val);
       }
 
       [[nodiscard]]
       constexpr const _Tp&
       operator*() const & noexcept
       {
-	__glibcxx_assert(has_value());
-	return *this->_M_val();
+	__glibcxx_assert(_M_has_value);
+	return _M_val;
       }
 
       [[nodiscard]]
       constexpr _Tp&
       operator*() & noexcept
       {
-	__glibcxx_assert(has_value());
-	return *this->_M_val();
+	__glibcxx_assert(_M_has_value);
+	return _M_val;
       }
 
       [[nodiscard]]
       constexpr const _Tp&&
       operator*() const && noexcept
       {
-	__glibcxx_assert(has_value());
-	return std::move(*this->_M_val());
+	__glibcxx_assert(_M_has_value);
+	return std::move(_M_val);
       }
 
       [[nodiscard]]
       constexpr _Tp&&
       operator*() && noexcept
       {
-	__glibcxx_assert(has_value());
-	return std::move(*this->_M_val());
+	__glibcxx_assert(_M_has_value);
+	return std::move(_M_val);
       }
 
       [[nodiscard]]
       constexpr explicit
-      operator bool() const noexcept { return this->_M_has_value; }
+      operator bool() const noexcept { return _M_has_value; }
 
       [[nodiscard]]
-      constexpr bool has_value() const noexcept { return this->_M_has_value; }
+      constexpr bool has_value() const noexcept { return _M_has_value; }
 
       constexpr const _Tp&
       value() const &
       {
-	if (has_value()) [[likely]]
-	  return *this->_M_val();
-	_GLIBCXX_THROW_OR_ABORT(bad_expected_access<_Er>(*this->_M_unex()));
+	if (_M_has_value) [[likely]]
+	  return _M_val;
+	_GLIBCXX_THROW_OR_ABORT(bad_expected_access<_Er>(_M_unex));
       }
 
       constexpr _Tp&
       value() &
       {
-	if (has_value()) [[likely]]
-	  return *this->_M_val();
-	_GLIBCXX_THROW_OR_ABORT(bad_expected_access<_Er>(*this->_M_unex()));
+	if (_M_has_value) [[likely]]
+	  return _M_val;
+	_GLIBCXX_THROW_OR_ABORT(bad_expected_access<_Er>(_M_unex));
       }
 
       constexpr const _Tp&&
       value() const &&
       {
-	if (has_value()) [[likely]]
-	  return std::move(*this->_M_val());
+	if (_M_has_value) [[likely]]
+	  return std::move(_M_val);
 	_GLIBCXX_THROW_OR_ABORT(bad_expected_access<_Er>(
-				  std::move(*this->_M_unex())));
+				  std::move(_M_unex)));
       }
 
       constexpr _Tp&&
       value() &&
       {
-	if (has_value()) [[likely]]
-	  return std::move(*this->_M_val());
+	if (_M_has_value) [[likely]]
+	  return std::move(_M_val);
 	_GLIBCXX_THROW_OR_ABORT(bad_expected_access<_Er>(
-				  std::move(*this->_M_unex())));
+				  std::move(_M_unex)));
       }
 
       constexpr const _Er&
       error() const & noexcept
       {
-	__glibcxx_assert(!has_value());
-	return *this->_M_unex();
+	__glibcxx_assert(!_M_has_value);
+	return _M_unex;
       }
 
       constexpr _Er&
       error() & noexcept
       {
-	__glibcxx_assert(!has_value());
-	return *this->_M_unex();
+	__glibcxx_assert(!_M_has_value);
+	return _M_unex;
       }
 
       constexpr const _Er&&
       error() const && noexcept
       {
-	__glibcxx_assert(!has_value());
-	return std::move(*this->_M_unex());
+	__glibcxx_assert(!_M_has_value);
+	return std::move(_M_unex);
       }
 
       constexpr _Er&&
       error() && noexcept
       {
-	__glibcxx_assert(!has_value());
-	return std::move(*this->_M_unex());
+	__glibcxx_assert(!_M_has_value);
+	return std::move(_M_unex);
       }
 
       template<typename _Up>
@@ -1017,8 +816,8 @@ namespace __expected
 	  static_assert( is_copy_constructible_v<_Tp> );
 	  static_assert( is_convertible_v<_Up, _Tp> );
 
-	  if (has_value())
-	    return *this->_M_val();
+	  if (_M_has_value)
+	    return _M_val;
 	  return static_cast<_Tp>(std::forward<_Up>(__v));
 	}
 
@@ -1031,8 +830,8 @@ namespace __expected
 	  static_assert( is_move_constructible_v<_Tp> );
 	  static_assert( is_convertible_v<_Up, _Tp> );
 
-	  if (has_value())
-	    return std::move(*this->_M_val());
+	  if (_M_has_value)
+	    return std::move(_M_val);
 	  return static_cast<_Tp>(std::forward<_Up>(__v));
 	}
 
@@ -1339,12 +1138,75 @@ namespace __expected
 
     private:
       template<typename, typename> friend class expected;
+
+      // Precondition: !this->_M_has_value
+      template<typename _Vp>
+	constexpr void
+	_M_assign_val(_Vp&& __v)
+	{
+	  __expected::__reinit(__builtin_addressof(_M_val),
+			       __builtin_addressof(_M_unex),
+			       std::forward<_Vp>(__v));
+	  _M_has_value = true;
+	}
+
+      // Precondition: this->_M_has_value
+      template<typename _Vp>
+	constexpr void
+	_M_assign_unex(_Vp&& __v)
+	{
+	  __expected::__reinit(__builtin_addressof(_M_unex),
+			       __builtin_addressof(_M_val),
+			       std::forward<_Vp>(__v));
+	  _M_has_value = false;
+	}
+
+      // Swap two expected objects when only one has a value.
+      // Precondition: this->_M_has_value && !__rhs._M_has_value
+      constexpr void
+      _M_swap_val_unex(expected& __rhs)
+      noexcept(__and_v<is_nothrow_move_constructible<_Er>,
+		       is_nothrow_move_constructible<_Tp>>)
+      {
+	if constexpr (is_nothrow_move_constructible_v<_Er>)
+	  {
+	    __expected::_Guard<_Er> __guard(__rhs._M_unex);
+	    std::construct_at(__builtin_addressof(__rhs._M_val),
+			      std::move(_M_val)); // might throw
+	    __rhs._M_has_value = true;
+	    std::destroy_at(__builtin_addressof(_M_val));
+	    std::construct_at(__builtin_addressof(_M_unex),
+			      __guard.release());
+	    _M_has_value = false;
+	  }
+	else
+	  {
+	    __expected::_Guard<_Tp> __guard(__rhs._M_val);
+	    std::construct_at(__builtin_addressof(_M_unex),
+			      std::move(__rhs._M_unex)); // might throw
+	    _M_has_value = false;
+	    std::destroy_at(__builtin_addressof(__rhs._M_unex));
+	    std::construct_at(__builtin_addressof(__rhs._M_val),
+			      __guard.release());
+	    __rhs._M_has_value = true;
+	  }
+      }
+
+      union {
+	struct { } _M_invalid;
+	_Tp _M_val;
+	_Er _M_unex;
+      };
+
+      bool _M_has_value;
     };
 
+  // Partial specialization for std::expected<cv void, E>
   template<typename _Tp, typename _Er> requires is_void_v<_Tp>
     class expected<_Tp, _Er>
-    : private __expected::_Base<void, _Er>
     {
+      static_assert( __expected::__can_be_unexpected<_Er> );
+
       template<typename _Up, typename _Err, typename _Unex = unexpected<_Er>>
 	static constexpr bool __cons_from_expected
 	  = __or_v<is_constructible<_Unex, expected<_Up, _Err>&>,
@@ -1371,7 +1233,8 @@ namespace __expected
 
       constexpr
       expected() noexcept
-      { this->_M_has_value = true; }
+      : _M_invalid(), _M_has_value(true)
+      { }
 
       expected(const expected&) = default;
 
@@ -1380,11 +1243,10 @@ namespace __expected
       noexcept(is_nothrow_copy_constructible_v<_Er>)
       requires is_copy_constructible_v<_Er>
 	    && (!is_trivially_copy_constructible_v<_Er>)
+      : _M_invalid(), _M_has_value(__x._M_has_value)
       {
-	if (__x.has_value())
-	  this->_M_has_value = true;
-	else
-	  this->_M_construct_unex(__x.error());
+	if (!_M_has_value)
+	  std::construct_at(__builtin_addressof(_M_unex), __x._M_unex);
       }
 
       expected(expected&&) = default;
@@ -1394,11 +1256,11 @@ namespace __expected
       noexcept(is_nothrow_move_constructible_v<_Er>)
       requires is_move_constructible_v<_Er>
 	    && (!is_trivially_move_constructible_v<_Er>)
+      : _M_invalid(), _M_has_value(__x._M_has_value)
       {
-	if (__x.has_value())
-	  this->_M_has_value = true;
-	else
-	  this->_M_construct_unex(std::move(__x.error()));
+	if (!_M_has_value)
+	  std::construct_at(__builtin_addressof(_M_unex),
+			    std::move(__x)._M_unex);
       }
 
       template<typename _Up, typename _Gr>
@@ -1408,11 +1270,10 @@ namespace __expected
 	constexpr explicit(!is_convertible_v<const _Gr&, _Er>)
 	expected(const expected<_Up, _Gr>& __x)
 	noexcept(is_nothrow_constructible_v<_Er, const _Gr&>)
+	: _M_invalid(), _M_has_value(__x._M_has_value)
 	{
-	  if (__x.has_value())
-	    this->_M_has_value = true;
-	  else
-	    this->_M_construct_unex(__x.error());
+	  if (!_M_has_value)
+	    std::construct_at(__builtin_addressof(_M_unex), __x._M_unex);
 	}
 
       template<typename _Up, typename _Gr>
@@ -1422,11 +1283,11 @@ namespace __expected
 	constexpr explicit(!is_convertible_v<_Gr, _Er>)
 	expected(expected<_Up, _Gr>&& __x)
 	noexcept(is_nothrow_constructible_v<_Er, _Gr>)
+	: _M_invalid(), _M_has_value(__x._M_has_value)
 	{
-	  if (__x.has_value())
-	    this->_M_has_value = true;
-	  else
-	    this->_M_construct_unex(std::move(__x.error()));
+	  if (!_M_has_value)
+	    std::construct_at(__builtin_addressof(_M_unex),
+			      std::move(__x)._M_unex);
 	}
 
       template<typename _Gr = _Er>
@@ -1434,33 +1295,30 @@ namespace __expected
 	constexpr explicit(!is_convertible_v<const _Gr&, _Er>)
 	expected(const unexpected<_Gr>& __u)
 	noexcept(is_nothrow_constructible_v<_Er, const _Gr&>)
-	{
-	  this->_M_construct_unex(__u.error());
-	}
+	: _M_unex(__u.error()), _M_has_value(false)
+	{ }
 
       template<typename _Gr = _Er>
 	requires is_constructible_v<_Er, _Gr>
 	constexpr explicit(!is_convertible_v<_Gr, _Er>)
 	expected(unexpected<_Gr>&& __u)
 	noexcept(is_nothrow_constructible_v<_Er, _Gr>)
-	{
-	  this->_M_construct_unex(std::move(__u.error()));
-	}
+	: _M_unex(std::move(__u).error()), _M_has_value(false)
+	{ }
 
       template<typename... _Args>
 	constexpr explicit
-	expected(in_place_t)
-	noexcept
-	{ this->_M_has_value = true; }
+	expected(in_place_t) noexcept
+	: expected()
+	{ }
 
       template<typename... _Args>
 	requires is_constructible_v<_Er, _Args...>
 	constexpr explicit
 	expected(unexpect_t, _Args&&... __args)
 	noexcept(is_nothrow_constructible_v<_Er, _Args...>)
-	{
-	  this->_M_construct_unex(std::forward<_Args>(__args)...);
-	}
+	: _M_unex(std::forward<_Args>(__args)...), _M_has_value(false)
+	{ }
 
       template<typename _Up, typename... _Args>
 	requires is_constructible_v<_Er, initializer_list<_Up>&, _Args...>
@@ -1468,14 +1326,16 @@ namespace __expected
 	expected(unexpect_t, initializer_list<_Up> __il, _Args&&... __args)
 	noexcept(is_nothrow_constructible_v<_Er, initializer_list<_Up>&,
 					    _Args...>)
-	{
-	  this->_M_construct_unex(__il, std::forward<_Args>(__args)...);
-	}
+	: _M_unex(__il, std::forward<_Args>(__args)...), _M_has_value(false)
+	{ }
 
       constexpr ~expected() = default;
 
       constexpr ~expected() requires (!is_trivially_destructible_v<_Er>)
-      { this->_M_destroy(); }
+      {
+	if (!_M_has_value)
+	  std::destroy_at(__builtin_addressof(_M_unex));
+      }
 
       // assignment
 
@@ -1488,20 +1348,23 @@ namespace __expected
       requires is_copy_constructible_v<_Er>
 	    && is_copy_assignable_v<_Er>
       {
-	if (this->has_value())
+	if (_M_has_value)
 	  {
-	    if (!__x.has_value())
-	      this->_M_construct_unex(*__x._M_unex());
+	    if (!__x._M_has_value)
+	      {
+		std::construct_at(__builtin_addressof(_M_unex), __x._M_unex);
+		_M_has_value = false;
+	      }
 	  }
 	else
 	  {
-	    if (__x.has_value())
+	    if (__x._M_has_value)
 	      {
-		this->_M_destroy_unex();
-		this->_M_has_value = true;
+		std::destroy_at(__builtin_addressof(_M_unex));
+		_M_has_value = true;
 	      }
 	    else
-	      *this->_M_unex() = *__x._M_unex();
+	      _M_unex = __x._M_unex;
 	  }
 	return *this;
       }
@@ -1516,17 +1379,21 @@ namespace __expected
 	if (this->has_value())
 	  {
 	    if (!__x.has_value())
-	      this->_M_construct_unex(std::move(*__x._M_unex()));
+	      {
+		std::construct_at(__builtin_addressof(_M_unex),
+				  std::move(__x._M_unex));
+		_M_has_value = false;
+	      }
 	  }
 	else
 	  {
 	    if (__x.has_value())
 	      {
-		this->_M_destroy_unex();
-		this->_M_has_value = true;
+		std::destroy_at(__builtin_addressof(_M_unex));
+		_M_has_value = true;
 	      }
 	    else
-	      *this->_M_unex() = std::move(*__x._M_unex());
+	      _M_unex = std::move(__x._M_unex);
 	  }
 	return *this;
       }
@@ -1538,9 +1405,12 @@ namespace __expected
 	operator=(const unexpected<_Gr>& __e)
 	{
 	  if (this->has_value())
-	    this->_M_construct_unex(__e.error());
+	    {
+	      std::construct_at(__builtin_addressof(_M_unex), __e.error());
+	      _M_has_value = false;
+	    }
 	  else
-	    *this->_M_unex() = __e.error();
+	    _M_unex = __e.error();
 	  return *this;
 	}
 
@@ -1551,9 +1421,13 @@ namespace __expected
 	operator=(unexpected<_Gr>&& __e)
 	{
 	  if (this->has_value())
-	    this->_M_construct_unex(std::move(__e).error());
+	    {
+	      std::construct_at(__builtin_addressof(_M_unex),
+				std::move(__e).error());
+	      _M_has_value = false;
+	    }
 	  else
-	    *this->_M_unex() = std::move(__e).error();
+	    _M_unex = std::move(__e).error();
 	  return *this;
 	}
 
@@ -1562,10 +1436,10 @@ namespace __expected
       constexpr void
       emplace() noexcept
       {
-	if (!this->has_value())
+	if (!_M_has_value)
 	  {
-	    this->_M_destroy_unex();
-	    this->_M_has_value = true;
+	    std::destroy_at(__builtin_addressof(_M_unex));
+	    _M_has_value = true;
 	  }
       }
 
@@ -1579,14 +1453,27 @@ namespace __expected
 	if (this->has_value())
 	  {
 	    if (!__x.has_value())
-	      this->_M_swap_val_unex(__x);
+	      {
+		std::construct_at(__builtin_addressof(_M_unex),
+				  std::move(__x._M_unex)); // might throw
+		std::destroy_at(__builtin_addressof(__x._M_unex));
+		__x._M_has_value = true;
+	      }
 	  }
 	else
 	  {
 	    if (__x.has_value())
-	      __x._M_swap_val_unex(*this);
+	      {
+		std::construct_at(__builtin_addressof(__x._M_unex),
+				  std::move(_M_unex)); // might throw
+		std::destroy_at(__builtin_addressof(_M_unex));
+		_M_has_value = true;
+	      }
 	    else
-	      this->_M_swap_unex(__x);
+	      {
+		using std::swap;
+		swap(_M_unex, __x._M_unex);
+	      }
 	  }
       }
 
@@ -1594,57 +1481,56 @@ namespace __expected
 
       [[nodiscard]]
       constexpr explicit
-      operator bool() const noexcept { return this->_M_has_value; }
+      operator bool() const noexcept { return _M_has_value; }
 
       [[nodiscard]]
-      constexpr bool has_value() const noexcept { return this->_M_has_value; }
+      constexpr bool has_value() const noexcept { return _M_has_value; }
 
       constexpr void
-      operator*() const noexcept { __glibcxx_assert(has_value()); }
+      operator*() const noexcept { __glibcxx_assert(_M_has_value); }
 
       constexpr void
       value() const&
       {
-	if (has_value()) [[likely]]
+	if (_M_has_value) [[likely]]
 	  return;
-	_GLIBCXX_THROW_OR_ABORT(bad_expected_access<_Er>(*this->_M_unex()));
+	_GLIBCXX_THROW_OR_ABORT(bad_expected_access<_Er>(_M_unex));
       }
 
       constexpr void
       value() &&
       {
-	if (has_value()) [[likely]]
+	if (_M_has_value) [[likely]]
 	  return;
-	_GLIBCXX_THROW_OR_ABORT(bad_expected_access<_Er>(
-				  std::move(*this->_M_unex())));
+	_GLIBCXX_THROW_OR_ABORT(bad_expected_access<_Er>(std::move(_M_unex)));
       }
 
       constexpr const _Er&
       error() const & noexcept
       {
-	__glibcxx_assert(!has_value());
-	return *this->_M_unex();
+	__glibcxx_assert(!_M_has_value);
+	return _M_unex;
       }
 
       constexpr _Er&
       error() & noexcept
       {
-	__glibcxx_assert(!has_value());
-	return *this->_M_unex();
+	__glibcxx_assert(!_M_has_value);
+	return _M_unex;
       }
 
       constexpr const _Er&&
       error() const && noexcept
       {
-	__glibcxx_assert(!has_value());
-	return std::move(*this->_M_unex());
+	__glibcxx_assert(!_M_has_value);
+	return std::move(_M_unex);
       }
 
       constexpr _Er&&
       error() && noexcept
       {
-	__glibcxx_assert(!has_value());
-	return std::move(*this->_M_unex());
+	__glibcxx_assert(!_M_has_value);
+	return std::move(_M_unex);
       }
 
       // monadic operations
@@ -1935,6 +1821,13 @@ namespace __expected
 
     private:
       template<typename, typename> friend class expected;
+
+      union {
+	struct { } _M_invalid;
+	_Er _M_unex;
+      };
+
+      bool _M_has_value;
     };
   /// @}
 
