@@ -522,20 +522,10 @@ namespace __expected
 	    && (is_nothrow_move_constructible_v<_Tp>
 		|| is_nothrow_move_constructible_v<_Er>)
       {
-	if (this->has_value())
-	  {
-	    if (__x.has_value())
-	      _M_val = __x._M_val;
-	    else
-	      this->_M_assign_unex(__x._M_unex);
-	  }
+	if (__x._M_has_value)
+	  this->_M_assign_val(__x._M_val);
 	else
-	  {
-	    if (__x.has_value())
-	      this->_M_assign_val(__x._M_val);
-	    else
-	      _M_unex = __x._M_unex;
-	  }
+	  this->_M_assign_unex(__x._M_unex);
 	return *this;
       }
 
@@ -550,20 +540,10 @@ namespace __expected
 	    && (is_nothrow_move_constructible_v<_Tp>
 		|| is_nothrow_move_constructible_v<_Er>)
       {
-	if (this->has_value())
-	  {
-	    if (__x.has_value())
-	      _M_val = std::move(__x._M_val);
-	    else
-	      this->_M_assign_unex(std::move(__x._M_unex));
-	  }
+	if (__x._M_has_value)
+	  _M_assign_val(std::move(__x._M_val));
 	else
-	  {
-	    if (__x.has_value())
-	      this->_M_assign_val(std::move(__x._M_val));
-	    else
-	      _M_unex = std::move(__x._M_unex);
-	  }
+	  _M_assign_unex(std::move(__x._M_unex));
 	return *this;
       }
 
@@ -577,10 +557,7 @@ namespace __expected
 	constexpr expected&
 	operator=(_Up&& __v)
 	{
-	  if (_M_has_value)
-	    _M_val = std::forward<_Up>(__v);
-	  else
-	    this->_M_assign_val(std::forward<_Up>(__v));
+	  _M_assign_val(std::forward<_Up>(__v));
 	  return *this;
 	}
 
@@ -593,10 +570,7 @@ namespace __expected
 	constexpr expected&
 	operator=(const unexpected<_Gr>& __e)
 	{
-	  if (_M_has_value)
-	    this->_M_assign_unex(__e.error());
-	  else
-	    _M_unex = __e.error();
+	  _M_assign_unex(__e.error());
 	  return *this;
 	}
 
@@ -609,10 +583,7 @@ namespace __expected
 	constexpr expected&
 	operator=(unexpected<_Gr>&& __e)
 	{
-	  if (_M_has_value)
-	    this->_M_assign_unex(std::move(__e).error());
-	  else
-	    _M_unex = std::move(__e).error();
+	  _M_assign_unex(std::move(__e).error());
 	  return *this;
 	}
 
@@ -1139,26 +1110,34 @@ namespace __expected
     private:
       template<typename, typename> friend class expected;
 
-      // Precondition: !this->_M_has_value
       template<typename _Vp>
 	constexpr void
 	_M_assign_val(_Vp&& __v)
 	{
-	  __expected::__reinit(__builtin_addressof(_M_val),
-			       __builtin_addressof(_M_unex),
-			       std::forward<_Vp>(__v));
-	  _M_has_value = true;
+	  if (_M_has_value)
+	    _M_val = std::forward<_Vp>(__v);
+	  else
+	    {
+	      __expected::__reinit(__builtin_addressof(_M_val),
+				   __builtin_addressof(_M_unex),
+				   std::forward<_Vp>(__v));
+	      _M_has_value = true;
+	    }
 	}
 
-      // Precondition: this->_M_has_value
       template<typename _Vp>
 	constexpr void
 	_M_assign_unex(_Vp&& __v)
 	{
-	  __expected::__reinit(__builtin_addressof(_M_unex),
-			       __builtin_addressof(_M_val),
-			       std::forward<_Vp>(__v));
-	  _M_has_value = false;
+	  if (_M_has_value)
+	    {
+	      __expected::__reinit(__builtin_addressof(_M_unex),
+				   __builtin_addressof(_M_val),
+				   std::forward<_Vp>(__v));
+	      _M_has_value = false;
+	    }
+	  else
+	    _M_unex = std::forward<_Vp>(__v);
 	}
 
       // Swap two expected objects when only one has a value.
