@@ -1327,24 +1327,10 @@ namespace __expected
       requires is_copy_constructible_v<_Er>
 	    && is_copy_assignable_v<_Er>
       {
-	if (_M_has_value)
-	  {
-	    if (!__x._M_has_value)
-	      {
-		std::construct_at(__builtin_addressof(_M_unex), __x._M_unex);
-		_M_has_value = false;
-	      }
-	  }
+	if (__x._M_has_value)
+	  emplace();
 	else
-	  {
-	    if (__x._M_has_value)
-	      {
-		std::destroy_at(__builtin_addressof(_M_unex));
-		_M_has_value = true;
-	      }
-	    else
-	      _M_unex = __x._M_unex;
-	  }
+	  _M_assign_unex(__x._M_unex);
 	return *this;
       }
 
@@ -1355,25 +1341,10 @@ namespace __expected
       requires is_move_constructible_v<_Er>
 	    && is_move_assignable_v<_Er>
       {
-	if (this->has_value())
-	  {
-	    if (!__x.has_value())
-	      {
-		std::construct_at(__builtin_addressof(_M_unex),
-				  std::move(__x._M_unex));
-		_M_has_value = false;
-	      }
-	  }
+	if (__x._M_has_value)
+	  emplace();
 	else
-	  {
-	    if (__x.has_value())
-	      {
-		std::destroy_at(__builtin_addressof(_M_unex));
-		_M_has_value = true;
-	      }
-	    else
-	      _M_unex = std::move(__x._M_unex);
-	  }
+	  _M_assign_unex(std::move(__x._M_unex));
 	return *this;
       }
 
@@ -1383,13 +1354,7 @@ namespace __expected
 	constexpr expected&
 	operator=(const unexpected<_Gr>& __e)
 	{
-	  if (this->has_value())
-	    {
-	      std::construct_at(__builtin_addressof(_M_unex), __e.error());
-	      _M_has_value = false;
-	    }
-	  else
-	    _M_unex = __e.error();
+	  _M_assign_unex(__e.error());
 	  return *this;
 	}
 
@@ -1399,14 +1364,7 @@ namespace __expected
 	constexpr expected&
 	operator=(unexpected<_Gr>&& __e)
 	{
-	  if (this->has_value())
-	    {
-	      std::construct_at(__builtin_addressof(_M_unex),
-				std::move(__e).error());
-	      _M_has_value = false;
-	    }
-	  else
-	    _M_unex = std::move(__e).error();
+	  _M_assign_unex(std::move(__e.error()));
 	  return *this;
 	}
 
@@ -1800,6 +1758,21 @@ namespace __expected
 
     private:
       template<typename, typename> friend class expected;
+
+      template<typename _Vp>
+	constexpr void
+	_M_assign_unex(_Vp&& __v)
+	{
+	  if (_M_has_value)
+	    {
+	      std::construct_at(__builtin_addressof(_M_unex),
+				std::forward<_Vp>(__v));
+	      _M_has_value = false;
+	    }
+	  else
+	    _M_unex = std::forward<_Vp>(__v);
+	}
+
 
       union {
 	struct { } _M_invalid;
