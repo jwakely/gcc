@@ -1356,7 +1356,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     {
       static_assert(__i < sizeof...(_Types), "tuple index must be in range");
 
-      using type = typename _Nth_type<__i, _Types...>::type;
+      using type = _Nth_type_t<__i, _Types...>;
     };
 
   template<size_t __i, typename _Head, typename... _Tail>

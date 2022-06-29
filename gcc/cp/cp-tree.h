@@ -1393,6 +1393,7 @@ enum cp_trait_kind
   CPTK_IS_TRIVIALLY_CONSTRUCTIBLE,
   CPTK_IS_TRIVIALLY_COPYABLE,
   CPTK_IS_UNION,
+  CPTK_TYPE_PACK_ELEMENT,
   CPTK_UNDERLYING_TYPE,
   CPTK_IS_ASSIGNABLE,
   CPTK_IS_CONSTRUCTIBLE,
@@ -4789,6 +4790,10 @@ get_vec_init_expr (tree t)
 #define UNDERLYING_TYPE_TYPE(NODE) \
   (TYPE_VALUES_RAW (UNDERLYING_TYPE_CHECK (NODE)))
 
+/* The arguments for a TYPE_PACK_ELEMENT.  */
+#define TYPE_PACK_ELEMENT_ARGS(NODE) \
+  (TYPE_VALUES_RAW (TYPE_PACK_ELEMENT_CHECK (NODE)))
+
 /* The type in question for BASES.  */
 #define BASES_TYPE(NODE) \
   (TYPE_VALUES_RAW (BASES_CHECK (NODE)))
@@ -7640,6 +7645,7 @@ extern cp_expr finish_id_expression		(tree, tree, tree,
                                                  location_t);
 extern tree finish_typeof			(tree);
 extern tree finish_underlying_type	        (tree);
+extern tree finish_type_pack_element	        (tree, tree);
 extern tree calculate_bases                     (tree, tsubst_flags_t);
 extern tree finish_bases                        (tree, bool);
 extern tree calculate_direct_bases              (tree, tsubst_flags_t);

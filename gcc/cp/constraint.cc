@@ -3690,6 +3690,7 @@ diagnose_trait_expr (tree expr, tree args)
     case CPTK_BASES:
     case CPTK_DIRECT_BASES:
     case CPTK_UNDERLYING_TYPE:
+    case CPTK_TYPE_PACK_ELEMENT:
       /* We shouldn't see these non-expression traits.  */
       gcc_unreachable ();
     /* We deliberately omit the default case so that when adding a new

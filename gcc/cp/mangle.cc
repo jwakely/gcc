@@ -2393,6 +2393,10 @@ write_type (tree type)
 	      sorry ("mangling %<__underlying_type%>");
 	      break;
 
+	    case TYPE_PACK_ELEMENT:
+	      sorry ("mangling %<__builtin_type_pack_element%>");
+	      break;
+
 	    case LANG_TYPE:
 	      /* fall through.  */
 

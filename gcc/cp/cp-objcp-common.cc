@@ -461,6 +461,7 @@ names_builtin_p (const char *name)
     case RID_IS_ASSIGNABLE:
     case RID_IS_CONSTRUCTIBLE:
     case RID_UNDERLYING_TYPE:
+    case RID_TYPE_PACK_ELEMENT:
       return true;
     default:
       break;
@@ -517,6 +518,7 @@ cp_common_init_ts (void)
   MARK_TS_TYPE_NON_COMMON (TEMPLATE_TEMPLATE_PARM);
   MARK_TS_TYPE_NON_COMMON (TEMPLATE_TYPE_PARM);
   MARK_TS_TYPE_NON_COMMON (TYPE_PACK_EXPANSION);
+  MARK_TS_TYPE_NON_COMMON (TYPE_PACK_ELEMENT);
 
   /* Statements.  */
   MARK_TS_EXP (CLEANUP_STMT);

@@ -706,6 +706,14 @@ dump_type (cxx_pretty_printer *pp, tree t, int flags)
       pp_cxx_right_paren (pp);
       break;
 
+    case TYPE_PACK_ELEMENT:
+      pp_cxx_ws_string (pp, "__builtin_type_pack_element");
+      pp_cxx_whitespace (pp);
+      pp_cxx_left_paren (pp);
+      dump_expr (pp, TYPE_PACK_ELEMENT_ARGS (t), flags & ~TFF_EXPR_IN_PARENS);
+      pp_cxx_right_paren (pp);
+      break;
+
     case TYPE_PACK_EXPANSION:
       dump_type (pp, PACK_EXPANSION_PATTERN (t), flags);
       pp_cxx_ws_string (pp, "...");
@@ -974,6 +982,7 @@ dump_type_prefix (cxx_pretty_printer *pp, tree t, int flags)
     case UNDERLYING_TYPE:
     case DECLTYPE_TYPE:
     case TYPE_PACK_EXPANSION:
+    case TYPE_PACK_ELEMENT:
     case FIXED_POINT_TYPE:
     case NULLPTR_TYPE:
       dump_type (pp, t, flags);
@@ -1098,6 +1107,7 @@ dump_type_suffix (cxx_pretty_printer *pp, tree t, int flags)
     case UNDERLYING_TYPE:
     case DECLTYPE_TYPE:
     case TYPE_PACK_EXPANSION:
+    case TYPE_PACK_ELEMENT:
     case FIXED_POINT_TYPE:
     case NULLPTR_TYPE:
       break;

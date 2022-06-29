@@ -1066,6 +1066,7 @@ cp_keyword_starts_decl_specifier_p (enum rid keyword)
       /* C++11 extensions.  */
     case RID_DECLTYPE:
     case RID_UNDERLYING_TYPE:
+    case RID_TYPE_PACK_ELEMENT:
     case RID_CONSTEXPR:
       /* C++20 extensions.  */
     case RID_CONSTINIT:
@@ -10898,6 +10899,10 @@ cp_parser_trait_expr (cp_parser* parser, enum rid keyword)
     case RID_UNDERLYING_TYPE:
       kind = CPTK_UNDERLYING_TYPE;
       break;
+    case RID_TYPE_PACK_ELEMENT:
+      kind = CPTK_TYPE_PACK_ELEMENT;
+      variadic = true;
+      break;
     case RID_BASES:
       kind = CPTK_BASES;
       break;
@@ -10933,10 +10938,24 @@ cp_parser_trait_expr (cp_parser* parser, enum rid keyword)
   matching_parens parens;
   parens.require_open (parser);
 
-  {
-    type_id_in_expr_sentinel s (parser);
-    type1 = cp_parser_type_id (parser);
-  }
+  if (kind == CPTK_TYPE_PACK_ELEMENT)
+    {
+      cp_expr e = cp_parser_constant_expression (parser, 0, nullptr, true);
+      if (!cp_lexer_next_token_is (parser->lexer, CPP_COMMA))
+	{
+	  location_t err_loc = cp_lexer_peek_token (parser->lexer)->location;
+	  err_loc = make_location (err_loc, start_loc, err_loc);
+	  error_at (err_loc, "%<__builtin_type_pack_element%> requires"
+			      " one or more type arguments");
+	  return error_mark_node;
+	}
+      type1 = e.get_value (); // actually a constant-expression, not a type
+    }
+  else
+    {
+      type_id_in_expr_sentinel s (parser);
+      type1 = cp_parser_type_id (parser);
+    }
 
   if (type1 == error_mark_node)
     return error_mark_node;
@@ -10986,6 +11005,8 @@ cp_parser_trait_expr (cp_parser* parser, enum rid keyword)
     {
     case CPTK_UNDERLYING_TYPE:
       return cp_expr (finish_underlying_type (type1), trait_loc);
+    case CPTK_TYPE_PACK_ELEMENT:
+      return cp_expr (finish_type_pack_element (type1, type2), trait_loc);
     case CPTK_BASES:
       return cp_expr (finish_bases (type1, false), trait_loc);
     case CPTK_DIRECT_BASES:
@@ -19505,6 +19526,7 @@ cp_parser_type_specifier (cp_parser* parser,
      char16_t
      char32_t
      __underlying_type ( type-id )
+     __builtin_type_pack_element ( constant-expression , type-id , [opt] )
 
    C++17 extension:
 
@@ -19710,6 +19732,15 @@ cp_parser_simple_type_specifier (cp_parser* parser,
 
     case RID_UNDERLYING_TYPE:
       type = cp_parser_trait_expr (parser, RID_UNDERLYING_TYPE);
+      if (decl_specs)
+	cp_parser_set_decl_spec_type (decl_specs, type,
+				      token,
+				      /*type_definition_p=*/false);
+
+      return type;
+
+    case RID_TYPE_PACK_ELEMENT:
+      type = cp_parser_trait_expr (parser, RID_TYPE_PACK_ELEMENT);
       if (decl_specs)
 	cp_parser_set_decl_spec_type (decl_specs, type,
 				      token,

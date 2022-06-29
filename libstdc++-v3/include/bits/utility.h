@@ -224,6 +224,21 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 #endif // C++17
 #endif // C++14
 
+#if __has_builtin(__builtin_type_pack_element) // GCC
+  template<size_t _Np, typename... _Types>
+    using _Nth_type_t = __builtin_type_pack_element(_Np, _Types...);
+
+  template<size_t _Np, typename... _Types>
+    struct _Nth_type
+    { using type = _Nth_type_t<_Np, _Types...>; };
+#elif __has_builtin(__type_pack_element) // Clang
+  template<size_t _Np, typename... _Types>
+    using _Nth_type_t = __type_pack_element<_Np, _Types...>;
+
+  template<size_t _Np, typename... _Types>
+    struct _Nth_type
+    { using type = _Nth_type_t<_Np, _Types...>; };
+#else // Pure C++ fallback
   template<size_t _Np, typename... _Types>
     struct _Nth_type
     { };
@@ -262,6 +277,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     struct _Nth_type<1, _Tp0, _Tp1, _Tp2, _Rest...>
     { using type = _Tp1; };
 #endif
+
+  template<size_t _Np, typename... _Types>
+    using _Nth_type_t = typename _Nth_type<_Np, _Types...>::type;
+#endif // __has_builtin(__type_pack_element)
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace
