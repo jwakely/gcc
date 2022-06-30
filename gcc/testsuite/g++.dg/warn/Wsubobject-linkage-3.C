@@ -3,7 +3,7 @@
 namespace { struct Foo { }; }
 
 #line 6 "foo.C"
-struct Bar { Foo foo; };   // { dg-warning "anonymous namespace" }
+struct Bar { Foo foo; };   // { dg-warning "anonymous namespace|internal linkage" }
 // { dg-bogus "no linkage" "" { target *-*-* } .-1 }
-struct Bar2 : Foo { };     // { dg-warning "anonymous namespace" }
+struct Bar2 : Foo { };     // { dg-warning "anonymous namespace|internal linkage" }
 // { dg-bogus "no linkage" "" { target *-*-* } .-1 }

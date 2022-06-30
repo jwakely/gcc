@@ -18,12 +18,15 @@ struct g3 {
 };
 
 #line 21 "foo.C"
-struct b1 { // { dg-warning "uses the anonymous namespace" }
+struct b1 { // { dg-warning "has internal linkage" "" { target c++11 } }
+// { dg-warning "uses the anonymous namespace" "" { target c++98_only } .-1 }
     bad * B;
 };
-struct b2 { // { dg-warning "uses the anonymous namespace" }
+struct b2 { // { dg-warning "has internal linkage" "" { target c++11 } }
+// { dg-warning "uses the anonymous namespace" "" { target c++98_only } .-1 }
     bad * B[1];
 };
-struct b3 { // { dg-warning "uses the anonymous namespace" }
+struct b3 { // { dg-warning "has internal linkage" "" { target c++11 } }
+// { dg-warning "uses the anonymous namespace" "" { target c++98_only } .-1 }
     bad (*B)[1];
 };

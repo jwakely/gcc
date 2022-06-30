@@ -3027,7 +3027,11 @@ constrain_class_visibility (tree type)
 %qT has a field %qD whose type depends on the type %qT which has no linkage",
 			       type, t, nlt);
 		  }
-		else
+		else if (cxx_dialect > cxx98)
+		  warning (OPT_Wsubobject_linkage, "\
+%qT has a field %qD whose type has internal linkage",
+			   type, t);
+		else // In C++98 this can only happen with unnamed namespaces.
 		  warning (OPT_Wsubobject_linkage, "\
 %qT has a field %qD whose type uses the anonymous namespace",
 			   type, t);
@@ -3062,7 +3066,11 @@ constrain_class_visibility (tree type)
 %qT has a base %qT whose type depends on the type %qT which has no linkage",
 			     type, TREE_TYPE (t), nlt);
 		}
-	      else
+	      else if (cxx_dialect > cxx98)
+		warning (OPT_Wsubobject_linkage, "\
+%qT has a base %qT whose type has internal linkage",
+			 type, TREE_TYPE (t));
+	      else // In C++98 this can only happen with unnamed namespaces.
 		warning (OPT_Wsubobject_linkage, "\
 %qT has a base %qT whose type uses the anonymous namespace",
 			 type, TREE_TYPE (t));
