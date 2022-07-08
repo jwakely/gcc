@@ -4418,6 +4418,50 @@ finish_underlying_type (tree type)
   return underlying_type;
 }
 
+/* Implement the __builtin_type_pack_element keyword: Return the type
+   at index N in TYPES..., suitable for use as a type-specifier.  */
+
+tree
+finish_type_pack_element (tree n, tree types)
+{
+  if (n == error_mark_node || types == error_mark_node
+      || check_for_bare_parameter_packs (n))
+    return error_mark_node;
+
+  if (processing_template_decl)
+    {
+      if (value_dependent_expression_p (n) || uses_template_parms (types))
+	{
+	  tree t = cxx_make_type (TYPE_PACK_ELEMENT);
+	  TYPE_PACK_ELEMENT_ARGS (t) = tree_cons (NULL_TREE, n, types);
+	  return t;
+	}
+    }
+
+  n = fold_non_dependent_expr (n);
+
+  if (!INTEGRAL_TYPE_P (TREE_TYPE (n)) || TREE_CODE (n) != INTEGER_CST)
+    {
+      error ("%<__builtin_type_pack_element%> index is not an integral"
+	     " constant");
+      return error_mark_node;
+    }
+
+  HOST_WIDE_INT lunroll = tree_to_shwi (n);
+  if (lunroll < 0 || lunroll >= list_length (types))
+    {
+      error ("a parameter pack may not be accessed at an out of bounds index");
+      return error_mark_node;
+    }
+
+  unsigned index = (unsigned)lunroll;
+  while (index-- > 0 && types != NULL_TREE)
+    types = TREE_CHAIN (types);
+  if (types == NULL_TREE)
+    return error_mark_node;
+  return TREE_VALUE (types);
+}
+
 /* Implement the __direct_bases keyword: Return the direct base classes
    of type.  */
 

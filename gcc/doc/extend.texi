@@ -25201,6 +25201,12 @@ definition, expands to a template argument pack containing integers
 from @code{0} to @code{length-1}.  This is provided for efficient
 implementation of @code{std::make_integer_sequence}.
 
+@item __builtin_type_pack_element (n, types...)
+The Nth type in the list of types.
+This is provided for efficient
+implementation of @code{std::tuple_element} and similar.
+Requires: 0 @leq{} @code{n} < number of type arguments.
+
 @end table
 
 

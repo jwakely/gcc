@@ -10619,6 +10619,7 @@ for_each_template_parm_r (tree *tp, int *walk_subtrees, void *d)
     case TYPEOF_TYPE:
     case DECLTYPE_TYPE:
     case UNDERLYING_TYPE:
+    case TYPE_PACK_ELEMENT:
       if (pfd->include_nondeduced_p
 	  && for_each_template_parm (TYPE_VALUES_RAW (t), fn, data,
 				     pfd->visited,
@@ -16502,6 +16503,15 @@ tsubst (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	tree type = tsubst (UNDERLYING_TYPE_TYPE (t), args,
 			    complain, in_decl);
 	return finish_underlying_type (type);
+      }
+
+    case TYPE_PACK_ELEMENT:
+      {
+	tree subst_args = tsubst (TYPE_PACK_ELEMENT_ARGS (t), args,
+				  complain, in_decl);
+	tree pack_index = TREE_VALUE (subst_args);
+	tree types = TREE_CHAIN (subst_args);
+	return finish_type_pack_element (pack_index, types);
       }
 
     case TYPE_ARGUMENT_PACK:
@@ -24903,8 +24913,9 @@ unify (tree tparms, tree targs, tree parm, tree arg, int strict,
     case TYPEOF_TYPE:
     case DECLTYPE_TYPE:
     case UNDERLYING_TYPE:
+    case TYPE_PACK_ELEMENT:
       /* Cannot deduce anything from TYPEOF_TYPE, DECLTYPE_TYPE,
-	 or UNDERLYING_TYPE nodes.  */
+	 UNDERLYING_TYPE, or TYPE_PACK_ELEMENT nodes.  */
       return unify_success (explain_p);
 
     case ERROR_MARK:
@@ -27479,12 +27490,13 @@ dependent_type_p_r (tree type)
 	       (INNERMOST_TEMPLATE_ARGS (CLASSTYPE_TI_ARGS (type)))))
     return true;
 
-  /* All TYPEOF_TYPEs, DECLTYPE_TYPEs, and UNDERLYING_TYPEs are
+  /* All these are
      dependent; if the argument of the `typeof' expression is not
      type-dependent, then it should already been have resolved.  */
   if (TREE_CODE (type) == TYPEOF_TYPE
       || TREE_CODE (type) == DECLTYPE_TYPE
-      || TREE_CODE (type) == UNDERLYING_TYPE)
+      || TREE_CODE (type) == UNDERLYING_TYPE
+      || TREE_CODE (type) == TYPE_PACK_ELEMENT)
     return true;
 
   /* A template argument pack is dependent if any of its packed

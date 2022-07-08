@@ -98,7 +98,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     {
       static_assert(_Np < sizeof...(_Types));
 
-      using type = typename _Nth_type<_Np, _Types...>::type;
+      using type = _Nth_type_t<_Np, _Types...>;
     };
 
   template<size_t _Np, typename _Variant>
@@ -324,7 +324,7 @@ namespace __variant
     struct _Traits
     {
       static constexpr bool _S_default_ctor =
-	  is_default_constructible_v<typename _Nth_type<0, _Types...>::type>;
+	  is_default_constructible_v<_Nth_type_t<0, _Types...>>;
       static constexpr bool _S_copy_ctor =
 	  (is_copy_constructible_v<_Types> && ...);
       static constexpr bool _S_move_ctor =
@@ -352,8 +352,7 @@ namespace __variant
       // The following nothrow traits are for non-trivial SMFs. Trivial SMFs
       // are always nothrow.
       static constexpr bool _S_nothrow_default_ctor =
-	  is_nothrow_default_constructible_v<
-	      typename _Nth_type<0, _Types...>::type>;
+	  is_nothrow_default_constructible_v<_Nth_type_t<0, _Types...>>;
       static constexpr bool _S_nothrow_copy_ctor = false;
       static constexpr bool _S_nothrow_move_ctor =
 	  (is_nothrow_move_constructible_v<_Types> && ...);
@@ -645,7 +644,7 @@ namespace __variant
 	      __variant::__get<__j>(*this) = __rhs_mem;
 	    else
 	      {
-		using _Tj = typename _Nth_type<__j, _Types...>::type;
+		using _Tj = _Nth_type_t<__j, _Types...>;
 		if constexpr (is_nothrow_copy_constructible_v<_Tj>
 			      || !is_nothrow_move_constructible_v<_Tj>)
 		  __variant::__emplace<__j>(*this, __rhs_mem);
@@ -697,7 +696,7 @@ namespace __variant
 		  __variant::__get<__j>(*this) = std::move(__rhs_mem);
 		else
 		  {
-		    using _Tj = typename _Nth_type<__j, _Types...>::type;
+		    using _Tj = _Nth_type_t<__j, _Types...>;
 		    if constexpr (is_nothrow_move_constructible_v<_Tj>)
 		      __variant::__emplace<__j>(*this, std::move(__rhs_mem));
 		    else
@@ -870,7 +869,7 @@ namespace __variant
       static constexpr size_t __index =
 	sizeof...(_Variants) - sizeof...(__rest) - 1;
 
-      using _Variant = typename _Nth_type<__index, _Variants...>::type;
+      using _Variant = _Nth_type_t<__index, _Variants...>;
 
       static constexpr int __do_cookie =
 	__extra_visit_slot_needed<_Ret, _Variant> ? 1 : 0;
@@ -932,8 +931,7 @@ namespace __variant
 	std::index_sequence<__indices...>>
     {
       using _Next =
-	  remove_reference_t<typename _Nth_type<sizeof...(__indices),
-			     _Variants...>::type>;
+	  remove_reference_t<_Nth_type_t<sizeof...(__indices), _Variants...>>;
       using _Array_type =
 	  _Multi_array<_Result_type (*)(_Visitor, _Variants...),
 		       __dimensions...>;
@@ -1511,7 +1509,7 @@ namespace __variant
 	emplace(_Args&&... __args)
 	{
 	  namespace __variant = std::__detail::__variant;
-	  using type = typename _Nth_type<_Np, _Types...>::type;
+	  using type = _Nth_type_t<_Np, _Types...>;
 	  // Provide the strong exception-safety guarantee when possible,
 	  // to avoid becoming valueless.
 	  if constexpr (is_nothrow_constructible_v<type, _Args...>)
@@ -1551,7 +1549,7 @@ namespace __variant
 	emplace(initializer_list<_Up> __il, _Args&&... __args)
 	{
 	  namespace __variant = std::__detail::__variant;
-	  using type = typename _Nth_type<_Np, _Types...>::type;
+	  using type = _Nth_type_t<_Np, _Types...>;
 	  // Provide the strong exception-safety guarantee when possible,
 	  // to avoid becoming valueless.
 	  if constexpr (is_nothrow_constructible_v<type,
@@ -1734,7 +1732,7 @@ namespace __variant
 	  constexpr size_t __max = 11; // "These go to eleven."
 
 	  // The type of the first variant in the pack.
-	  using _V0 = typename _Nth_type<0, _Variants...>::type;
+	  using _V0 = _Nth_type_t<0, _Variants...>;
 	  // The number of alternatives in that first variant.
 	  constexpr auto __n = variant_size_v<remove_reference_t<_V0>>;
 

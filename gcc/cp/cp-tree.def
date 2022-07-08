@@ -470,6 +470,10 @@ DEFTREECODE (DECLTYPE_TYPE, "decltype_type", tcc_type, 0)
    UNDERLYING_TYPE_TYPE is the type in question.  */
 DEFTREECODE (UNDERLYING_TYPE, "underlying_type", tcc_type, 0)
 
+/* A type designated by `__builtin_type_pack_element (n, type)'.
+   TYPE_PACK_ELEMENT_ARGS contains the arguments.  */
+DEFTREECODE (TYPE_PACK_ELEMENT, "builtin_type_pack_element", tcc_type, 0)
+
 /* A type designated by one of the bases type traits.
    BASES_TYPE is the type in question.  */
 DEFTREECODE (BASES, "bases", tcc_type, 0)
