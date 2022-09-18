@@ -38,6 +38,7 @@ std_freestanding = \
 	${std_srcdir}/atomic \
 	${std_srcdir}/bit \
 	${std_srcdir}/bitset \
+	${std_srcdir}/charconv \
 	${std_srcdir}/concepts \
 	${std_srcdir}/coroutine \
 	${std_srcdir}/functional \
@@ -63,7 +64,6 @@ std_headers = \
 	${std_freestanding} \
 	${std_srcdir}/any \
 	${std_srcdir}/barrier \
-	${std_srcdir}/charconv \
 	${std_srcdir}/chrono \
 	${std_srcdir}/codecvt \
 	${std_srcdir}/complex \
@@ -123,6 +123,7 @@ bits_freestanding = \
 	${bits_srcdir}/alloc_traits.h \
 	${bits_srcdir}/atomic_base.h \
 	${bits_srcdir}/c++0x_warning.h \
+	${bits_srcdir}/charconv.h \
 	${bits_srcdir}/concept_check.h \
 	${bits_srcdir}/cpp_type_traits.h \
 	${bits_srcdir}/enable_special_members.h \
@@ -177,7 +178,6 @@ bits_headers = \
 	${bits_srcdir}/basic_string.tcc \
 	${bits_srcdir}/boost_concept_check.h \
 	${bits_srcdir}/char_traits.h \
-	${bits_srcdir}/charconv.h \
 	${bits_srcdir}/chrono.h \
 	${bits_srcdir}/codecvt.h \
 	${bits_srcdir}/cow_string.h \

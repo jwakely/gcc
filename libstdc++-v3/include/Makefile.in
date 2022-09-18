@@ -396,6 +396,7 @@ std_freestanding = \
 	${std_srcdir}/atomic \
 	${std_srcdir}/bit \
 	${std_srcdir}/bitset \
+	${std_srcdir}/charconv \
 	${std_srcdir}/concepts \
 	${std_srcdir}/coroutine \
 	${std_srcdir}/functional \
@@ -419,7 +420,6 @@ std_freestanding = \
 @GLIBCXX_HOSTED_TRUE@	${std_freestanding} \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/any \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/barrier \
-@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/charconv \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/chrono \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/codecvt \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/complex \
@@ -478,6 +478,7 @@ bits_freestanding = \
 	${bits_srcdir}/alloc_traits.h \
 	${bits_srcdir}/atomic_base.h \
 	${bits_srcdir}/c++0x_warning.h \
+	${bits_srcdir}/charconv.h \
 	${bits_srcdir}/concept_check.h \
 	${bits_srcdir}/cpp_type_traits.h \
 	${bits_srcdir}/enable_special_members.h \
@@ -530,7 +531,6 @@ bits_freestanding = \
 @GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/basic_string.tcc \
 @GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/boost_concept_check.h \
 @GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/char_traits.h \
-@GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/charconv.h \
 @GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/chrono.h \
 @GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/codecvt.h \
 @GLIBCXX_HOSTED_TRUE@	${bits_srcdir}/cow_string.h \
