@@ -41,6 +41,7 @@ std_freestanding = \
 	${std_srcdir}/charconv \
 	${std_srcdir}/concepts \
 	${std_srcdir}/coroutine \
+	${std_srcdir}/expected \
 	${std_srcdir}/functional \
 	${std_srcdir}/iterator \
 	${std_srcdir}/limits \
@@ -49,10 +50,12 @@ std_freestanding = \
 	${std_srcdir}/optional \
 	${std_srcdir}/ranges \
 	${std_srcdir}/ratio \
+	${std_srcdir}/scoped_allocator \
 	${std_srcdir}/source_location \
 	${std_srcdir}/span \
 	${std_srcdir}/tuple \
 	${std_srcdir}/type_traits \
+	${std_srcdir}/typeindex \
 	${std_srcdir}/utility \
 	${std_srcdir}/variant \
 	${std_srcdir}/version
@@ -70,7 +73,6 @@ std_headers = \
 	${std_srcdir}/condition_variable \
 	${std_srcdir}/deque \
 	${std_srcdir}/execution \
-	${std_srcdir}/expected \
 	${std_srcdir}/filesystem \
 	${std_srcdir}/forward_list \
 	${std_srcdir}/fstream \
@@ -91,7 +93,6 @@ std_headers = \
 	${std_srcdir}/queue \
 	${std_srcdir}/random \
 	${std_srcdir}/regex \
-	${std_srcdir}/scoped_allocator \
 	${std_srcdir}/semaphore \
 	${std_srcdir}/set \
 	${std_srcdir}/shared_mutex \
@@ -107,7 +108,6 @@ std_headers = \
 	${std_srcdir}/string_view \
 	${std_srcdir}/system_error \
 	${std_srcdir}/thread \
-	${std_srcdir}/typeindex \
 	${std_srcdir}/unordered_map \
 	${std_srcdir}/unordered_set \
 	${std_srcdir}/valarray \

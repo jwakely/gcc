@@ -399,6 +399,7 @@ std_freestanding = \
 	${std_srcdir}/charconv \
 	${std_srcdir}/concepts \
 	${std_srcdir}/coroutine \
+	${std_srcdir}/expected \
 	${std_srcdir}/functional \
 	${std_srcdir}/iterator \
 	${std_srcdir}/limits \
@@ -407,10 +408,12 @@ std_freestanding = \
 	${std_srcdir}/optional \
 	${std_srcdir}/ranges \
 	${std_srcdir}/ratio \
+	${std_srcdir}/scoped_allocator \
 	${std_srcdir}/source_location \
 	${std_srcdir}/span \
 	${std_srcdir}/tuple \
 	${std_srcdir}/type_traits \
+	${std_srcdir}/typeindex \
 	${std_srcdir}/utility \
 	${std_srcdir}/variant \
 	${std_srcdir}/version
@@ -426,7 +429,6 @@ std_freestanding = \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/condition_variable \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/deque \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/execution \
-@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/expected \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/filesystem \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/forward_list \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/fstream \
@@ -447,7 +449,6 @@ std_freestanding = \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/queue \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/random \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/regex \
-@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/scoped_allocator \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/semaphore \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/set \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/shared_mutex \
@@ -463,7 +464,6 @@ std_freestanding = \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/string_view \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/system_error \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/thread \
-@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/typeindex \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/unordered_map \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/unordered_set \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/valarray \
