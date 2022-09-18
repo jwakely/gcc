@@ -395,6 +395,7 @@ std_freestanding = \
 	${std_srcdir}/array \
 	${std_srcdir}/atomic \
 	${std_srcdir}/bit \
+	${std_srcdir}/bitset \
 	${std_srcdir}/concepts \
 	${std_srcdir}/coroutine \
 	${std_srcdir}/functional \
@@ -418,7 +419,6 @@ std_freestanding = \
 @GLIBCXX_HOSTED_TRUE@	${std_freestanding} \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/any \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/barrier \
-@GLIBCXX_HOSTED_TRUE@	${std_srcdir}/bitset \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/charconv \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/chrono \
 @GLIBCXX_HOSTED_TRUE@	${std_srcdir}/codecvt \

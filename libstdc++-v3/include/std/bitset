@@ -44,11 +44,14 @@
 
 #pragma GCC system_header
 
-#include <string>
 #include <bits/functexcept.h>   // For invalid_argument, out_of_range,
                                 // overflow_error
-#include <iosfwd>
 #include <bits/cxxabi_forced.h>
+
+#if _GLIBCXX_HOSTED
+# include <string>
+# include <iosfwd>
+#endif
 
 #if __cplusplus >= 201103L
 # include <bits/functional_hash.h>
@@ -755,6 +758,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       typedef _Base_bitset<_GLIBCXX_BITSET_WORDS(_Nb)> _Base;
       typedef unsigned long _WordT;
 
+#if _GLIBCXX_HOSTED
       template<class _CharT, class _Traits, class _Alloc>
       void
       _M_check_initial_position(const std::basic_string<_CharT, _Traits, _Alloc>& __s,
@@ -766,6 +770,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 				       "(which is %zu)"),
 				   __position, __s.size());
       }
+#endif // HOSTED
 
       void _M_check(size_t __position, const char *__s) const
       {
@@ -879,6 +884,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       { _M_do_sanitize(); }
 #endif
 
+#if _GLIBCXX_HOSTED
       /**
        *  Use a subset of a string.
        *  @param  __s  A string of @a 0 and @a 1 characters.
@@ -959,6 +965,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 							     __one);
 	}
 #endif
+#endif // HOSTED
 
       // 23.3.5.2 bitset operations:
       ///@{
@@ -1184,6 +1191,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       { return this->_M_do_to_ullong(); }
 #endif
 
+#if _GLIBCXX_HOSTED
       /**
        *  @brief Returns a character interpretation of the %bitset.
        *  @return  The string equivalent of the bits.
@@ -1289,6 +1297,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	void
         _M_copy_to_string(std::basic_string<_CharT, _Traits,_Alloc>& __s) const
 	{ _M_copy_to_string(__s, _CharT('0'), _CharT('1')); }
+#endif // HOSTED
 
       /// Returns the number of bits which are set.
       size_t
@@ -1385,6 +1394,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       { return this->_M_do_find_next(__prev, _Nb); }
     };
 
+#if _GLIBCXX_HOSTED
   // Definitions of non-inline member functions.
   template<size_t _Nb>
     template<class _CharT, class _Traits>
@@ -1419,6 +1429,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	  if (_Unchecked_test(__i - 1))
 	    _Traits::assign(__s[_Nb - __i], __one);
       }
+#endif
 
   // 23.3.5.3 bitset operations:
   ///@{
@@ -1458,6 +1469,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
     }
   ///@}
 
+#if _GLIBCXX_HOSTED
   ///@{
   /**
    *  @brief Global I/O operators for bitsets.
@@ -1549,6 +1561,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       return __os << __tmp;
     }
   ///@}
+#endif // HOSTED
 
 _GLIBCXX_END_NAMESPACE_CONTAINER
 } // namespace std
@@ -1591,7 +1604,7 @@ _GLIBCXX_END_NAMESPACE_VERSION
 
 #endif // C++11
 
-#ifdef _GLIBCXX_DEBUG
+#if defined(_GLIBCXX_DEBUG) && _GLIBCXX_HOSTED
 # include <debug/bitset>
 #endif
 

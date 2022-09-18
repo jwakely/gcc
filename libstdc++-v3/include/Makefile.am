@@ -37,6 +37,7 @@ std_freestanding = \
 	${std_srcdir}/array \
 	${std_srcdir}/atomic \
 	${std_srcdir}/bit \
+	${std_srcdir}/bitset \
 	${std_srcdir}/concepts \
 	${std_srcdir}/coroutine \
 	${std_srcdir}/functional \
@@ -62,7 +63,6 @@ std_headers = \
 	${std_freestanding} \
 	${std_srcdir}/any \
 	${std_srcdir}/barrier \
-	${std_srcdir}/bitset \
 	${std_srcdir}/charconv \
 	${std_srcdir}/chrono \
 	${std_srcdir}/codecvt \
