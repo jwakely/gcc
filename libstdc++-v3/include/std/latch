@@ -29,6 +29,8 @@
 #ifndef _GLIBCXX_LATCH
 #define _GLIBCXX_LATCH 1
 
+#include <bits/requires_hosted.h> // concurrency
+
 #pragma GCC system_header
 
 #if __cplusplus > 201703L

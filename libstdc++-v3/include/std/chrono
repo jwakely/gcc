@@ -30,6 +30,8 @@
 #ifndef _GLIBCXX_CHRONO
 #define _GLIBCXX_CHRONO 1
 
+#include <bits/requires_hosted.h> // for <ctime> and clocks
+
 #pragma GCC system_header
 
 #if __cplusplus < 201103L

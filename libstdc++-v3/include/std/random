@@ -29,6 +29,8 @@
 #ifndef _GLIBCXX_RANDOM
 #define _GLIBCXX_RANDOM 1
 
+#include <bits/requires_hosted.h> // OS-dependent random
+
 #pragma GCC system_header
 
 #if __cplusplus < 201103L

@@ -24,6 +24,8 @@
 #ifndef _GLIBCXX_STACKTRACE
 #define _GLIBCXX_STACKTRACE 1
 
+#include <bits/requires_hosted.h> // std::string bound
+
 #pragma GCC system_header
 
 #include <bits/c++config.h>

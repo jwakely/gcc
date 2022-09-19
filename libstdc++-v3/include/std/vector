@@ -55,6 +55,8 @@
 #ifndef _GLIBCXX_VECTOR
 #define _GLIBCXX_VECTOR 1
 
+#include <bits/requires_hosted.h> // container
+
 #pragma GCC system_header
 
 #include <bits/stl_algobase.h>

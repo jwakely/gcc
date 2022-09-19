@@ -29,6 +29,8 @@
 #ifndef _GLIBCXX_MEMORY_RESOURCE
 #define _GLIBCXX_MEMORY_RESOURCE 1
 
+#include <bits/requires_hosted.h> // polymorphic allocation
+
 #pragma GCC system_header
 
 #if __cplusplus >= 201703L

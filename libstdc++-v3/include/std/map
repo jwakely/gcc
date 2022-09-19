@@ -55,6 +55,8 @@
 #ifndef _GLIBCXX_MAP
 #define _GLIBCXX_MAP 1
 
+#include <bits/requires_hosted.h> // containers
+
 #pragma GCC system_header
 
 #include <bits/stl_tree.h>

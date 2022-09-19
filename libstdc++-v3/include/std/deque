@@ -55,6 +55,8 @@
 #ifndef _GLIBCXX_DEQUE
 #define _GLIBCXX_DEQUE 1
 
+#include <bits/requires_hosted.h> // containers are hosted only
+
 #pragma GCC system_header
 
 #include <bits/stl_algobase.h>

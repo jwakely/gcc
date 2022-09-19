@@ -55,6 +55,8 @@
 #ifndef _GLIBCXX_SET
 #define _GLIBCXX_SET 1
 
+#include <bits/requires_hosted.h> // containers
+
 #pragma GCC system_header
 
 #include <bits/stl_tree.h>

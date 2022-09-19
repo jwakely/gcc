@@ -29,6 +29,8 @@
 #ifndef _GLIBCXX_REGEX
 #define _GLIBCXX_REGEX 1
 
+#include <bits/requires_hosted.h> // string and container heavy
+
 #pragma GCC system_header
 
 #if __cplusplus < 201103L

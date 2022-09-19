@@ -55,6 +55,8 @@
 #ifndef _GLIBCXX_QUEUE
 #define _GLIBCXX_QUEUE 1
 
+#include <bits/requires_hosted.h> // containers
+
 #pragma GCC system_header
 
 #include <deque>

@@ -29,6 +29,8 @@
 #ifndef _GLIBCXX_SYNCSTREAM
 #define _GLIBCXX_SYNCSTREAM 1
 
+#include <bits/requires_hosted.h> // iostreams
+
 #if __cplusplus > 201703L
 
 #include <bits/c++config.h>

@@ -1,6 +1,4 @@
-// <execution> -*- C++ -*-
-
-// Copyright (C) 2018-2022 Free Software Foundation, Inc.
+// Copyright (C) 2007-2022 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -22,38 +20,18 @@
 // see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 // <http://www.gnu.org/licenses/>.
 
-#ifndef _GLIBCXX_EXECUTION
-#define _GLIBCXX_EXECUTION 1
+/** @file bits/requires_hosted.h
+ *  This is an internal header file, included by other library headers.
+ *  Do not attempt to use it directly. @headername{version}
+ */
 
-#include <bits/requires_hosted.h> // execution policies are hosted only
+#ifndef _REQUIRES_FREESTANDING_H
+#define _REQUIRES_FREESTANDING_H 1
 
-#pragma GCC system_header
+#include <bits/c++config.h>
 
-#if __cplusplus >= 201703L
-# include <bits/c++config.h>
-# include <pstl/glue_execution_defs.h>
+#if !_GLIBCXX_HOSTED
+#  error "This header is not available in freestanding mode."
+#endif
 
-# define _PSTL_EXECUTION_POLICIES_DEFINED 1
-
-// Algorithm implementation
-# if _PSTL_ALGORITHM_FORWARD_DECLARED
-#  include <pstl/glue_algorithm_impl.h>
-# endif
-
-// Numeric implementation
-# if _PSTL_NUMERIC_FORWARD_DECLARED
-#  include <pstl/glue_numeric_impl.h>
-# endif
-
-// Memory implementation
-# if _PSTL_NUMERIC_FORWARD_DECLARED
-#  include <pstl/glue_memory_impl.h>
-# endif
-
-// Feature test macro for parallel algorithms
-# define __cpp_lib_parallel_algorithm 201603L
-# define __cpp_lib_execution 201902L
-
-#endif // C++17
-
-#endif /* _GLIBCXX_EXECUTION */
+#endif

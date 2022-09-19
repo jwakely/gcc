@@ -55,6 +55,8 @@
 #ifndef _GLIBCXX_STACK
 #define _GLIBCXX_STACK 1
 
+#include <bits/requires_hosted.h> // containers
+
 #pragma GCC system_header
 
 #include <deque>

@@ -29,6 +29,8 @@
 #ifndef _GLIBCXX_UNORDERED_MAP
 #define _GLIBCXX_UNORDERED_MAP 1
 
+#include <bits/requires_hosted.h> // container
+
 #pragma GCC system_header
 
 #if __cplusplus < 201103L

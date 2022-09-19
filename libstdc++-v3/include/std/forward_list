@@ -29,6 +29,8 @@
 #ifndef _GLIBCXX_FORWARD_LIST
 #define _GLIBCXX_FORWARD_LIST 1
 
+#include <bits/requires_hosted.h> // containers
+
 #pragma GCC system_header
 
 #if __cplusplus < 201103L
