@@ -16,7 +16,7 @@
 // <http://www.gnu.org/licenses/>.
 
 // { dg-do run { target c++17 } }
-// { dg-require-cstdint "" }
+// { dg-require-effective-target hosted }
 
 #include <cstdlib>
 #include <cstdint>
