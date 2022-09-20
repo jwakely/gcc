@@ -33,6 +33,75 @@
 #include <cassert>
 #endif
 #include <cctype>
+#include <cfloat>
+#include <ciso646>
+#include <climits>
+#include <csetjmp>
+#include <cstdarg>
+#include <cstddef>
+#include <cstdlib>
+
+#if __cplusplus >= 201103L
+#include <cstdint>
+#endif
+
+// C++
+// #include <bitset>
+// #include <complex>
+#include <functional>
+#include <iterator>
+#include <limits>
+#include <memory>
+#include <new>
+#include <numeric>
+#include <typeinfo>
+#include <utility>
+
+#if __cplusplus >= 201103L
+#include <array>
+#include <atomic>
+#include <initializer_list>
+#include <ratio>
+#include <scoped_allocator>
+#include <tuple>
+#include <typeindex>
+#include <type_traits>
+#endif
+
+#if __cplusplus >= 201402L
+#endif
+
+#if __cplusplus >= 201703L
+#include <any>
+#include <charconv>
+// #include <execution>
+#include <optional>
+#include <variant>
+#endif
+
+#if __cplusplus >= 202002L
+#include <bit>
+#include <compare>
+#include <concepts>
+#include <numbers>
+#include <ranges>
+#include <span>
+#include <source_location>
+#include <version>
+#endif
+
+#if __cplusplus > 202002L
+#include <expected>
+#include <stdatomic.h>
+#endif
+
+
+#if _GLIBCXX_HOSTED
+// C
+#ifndef _GLIBCXX_NO_ASSERT
+#include <cassert>
+#endif
+#include <cctype>
 #include <cerrno>
 #include <cfloat>
 #include <ciso646>
@@ -160,3 +229,5 @@
 #endif
 #include <stdatomic.h>
 #endif
+
+#endif // HOSTED
