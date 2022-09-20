@@ -200,7 +200,7 @@ in the following sections.
 @gccoptlist{-ansi  -std=@var{standard}  -aux-info @var{filename} @gol
 -fallow-parameterless-variadic-functions  -fno-asm  @gol
 -fno-builtin  -fno-builtin-@var{function}  -fcond-mismatch @gol
--ffreestanding  -fgimple  -fgnu-tm  -fgnu89-inline  -fhosted @gol
+-ffreestanding  -fgimple  -fgnu-tm  -fgnu89-inline  -fhosted -fspecial-main @gol
 -flax-vector-conversions  -fms-extensions @gol
 -foffload=@var{arg}  -foffload-options=@var{arg} @gol
 -fopenacc  -fopenacc-dim=@var{geom} @gol
@@ -2587,13 +2587,21 @@ is not supported for C++.
 @cindex hosted environment
 
 Assert that compilation targets a freestanding environment.  This
-implies @option{-fno-builtin}.  A freestanding environment
-is one in which the standard library may not exist, and program startup may
-not necessarily be at @code{main}.  The most obvious example is an OS kernel.
-This is equivalent to @option{-fno-hosted}.
+implies @option{-fno-builtin} and @option{-fno-special-main}.  A freestanding
+environment is one in which the standard library may not exist, and program
+startup may not necessarily be at @code{main}.  The most obvious example is an
+OS kernel.  This is equivalent to @option{-fno-hosted}.
 
 @xref{Standards,,Language Standards Supported by GCC}, for details of
 freestanding and hosted environments.
+
+@item -fspecial-main
+@opindex fspecial-main
+@cindex hosted environment
+
+Specify that @code{main} is to be treated specially.  This means that it will
+be given a default return value of zero and that its return type must
+be @code{int}.
 
 @item -fgimple
 @opindex fgimple
@@ -2643,9 +2651,9 @@ Macros,,,cpp,The C Preprocessor}.
 @cindex hosted environment
 
 Assert that compilation targets a hosted environment.  This implies
-@option{-fbuiltin}.  A hosted environment is one in which the
-entire standard library is available, and in which @code{main} has a return
-type of @code{int}.  Examples are nearly everything except a kernel.
+@option{-fbuiltin} and @option{-fspecial-main}.  A hosted environment is one in
+which the entire standard library is available, and in which @code{main} has a
+return type of @code{int}.  Examples are nearly everything except a kernel.
 This is equivalent to @option{-fno-freestanding}.
 
 @item -flax-vector-conversions
@@ -5820,7 +5828,7 @@ Options} and @ref{Objective-C and Objective-C++ Dialect Options}.
 -Wimplicit-function-declaration @r{(C and Objective-C only)} @gol
 -Winit-self @r{(only for C++)} @gol
 -Wlogical-not-parentheses @gol
--Wmain @r{(only for C/ObjC and unless} @option{-ffreestanding}@r{)}  @gol
+-Wmain @r{(only for C/ObjC and unless} @option{-fno-special-main}@r{)}  @gol
 -Wmaybe-uninitialized @gol
 -Wmemset-elt-size @gol
 -Wmemset-transposed-args @gol

@@ -1758,6 +1758,10 @@ ffreestanding
 C ObjC C++ ObjC++
 Do not assume that standard C libraries and \"main\" exist.
 
+fspecial-main
+C ObjC C++ ObjC++
+Treat \"main\" specially, as with -fhosted.
+
 fgnu-keywords
 C++ ObjC++ Var(flag_no_gnu_keywords, 0)
 Recognize GNU-defined keywords.

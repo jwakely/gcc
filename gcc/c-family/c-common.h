@@ -702,6 +702,10 @@ extern int flag_isoc2x;
 
 extern int flag_hosted;
 
+/* Nonzero means that we want to give main its special meaning */
+
+extern int flag_special_main;
+
 /* ObjC language option variables.  */
 
 

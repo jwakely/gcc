@@ -232,6 +232,10 @@ int flag_isoc2x;
 
 int flag_hosted = 1;
 
+/* Nonzero means that we want to give main its special meaning */
+
+int flag_special_main = 1;
+
 
 /* ObjC language option variables.  */
 

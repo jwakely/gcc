@@ -39,7 +39,7 @@ c_missing_noreturn_ok_p (tree decl)
 {
   /* A missing noreturn is not ok for freestanding implementations and
      ok for the `main' function in hosted implementations.  */
-  return flag_hosted && MAIN_NAME_P (DECL_ASSEMBLER_NAME (decl));
+  return flag_special_main && MAIN_NAME_P (DECL_ASSEMBLER_NAME (decl));
 }
 
 /* Called from check_global_declaration.  */

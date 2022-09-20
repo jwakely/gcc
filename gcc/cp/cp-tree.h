@@ -773,7 +773,7 @@ typedef struct ptrmem_cst * ptrmem_cst_t;
    (DECL_EXTERN_C_FUNCTION_P (NODE)			\
     && DECL_NAME (NODE) != NULL_TREE			\
     && MAIN_NAME_P (DECL_NAME (NODE))			\
-    && flag_hosted)
+    && flag_special_main)
 
 /* Lookup walker marking.  */
 #define LOOKUP_SEEN_P(NODE) TREE_VISITED (NODE)

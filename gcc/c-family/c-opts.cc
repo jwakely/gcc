@@ -473,6 +473,11 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
     case OPT_fhosted:
       flag_hosted = value;
       flag_no_builtin = !value;
+      flag_special_main = value;
+      break;
+
+    case OPT_fspecial_main:
+      flag_special_main = value;
       break;
 
     case OPT_fconstant_string_class_:
