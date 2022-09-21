@@ -484,7 +484,7 @@ proc v3_target_compile { source dest type options } {
     global STATIC_LIBCXXFLAGS
     global tool
 
-    lappend options "additional_flags=-fdiagnostics-plain-output"
+    lappend options "additional_flags=-fdiagnostics-plain-output -fspecial-main"
 
     if { [target_info needs_status_wrapper] != "" && [info exists gluefile] } {
 	lappend options "libs=${gluefile}"
