@@ -1,4 +1,5 @@
 // Copyright (C) 2017-2022 Free Software Foundation, Inc.
+// { dg-require-effective-target hosted }
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
