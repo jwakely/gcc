@@ -48,11 +48,5 @@ proc ${tool}_check_unsupported_p { output } {
 	  && ![check_effective_target_large_return_values] } {
 	return "large return values not supported"
     }
-
-    global tool;
-    if { [string match "*This header is not available in freestanding mode.*" $output]
-	  && [string equal $tool "libstdc++"] } {
-	return "hosted C++ headers not supported"
-    }
     return ""
 }
