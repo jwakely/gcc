@@ -1,4 +1,5 @@
 // -*- C++ -*- std::experimental::contract_violation and friends
+
 // Copyright (C) 2019-2022 Free Software Foundation, Inc.
 //
 // This file is part of GCC.
@@ -23,19 +24,21 @@
 // <http://www.gnu.org/licenses/>.
 
 #include <experimental/contract>
-#include <iostream>
+#if _GLIBCXX_HOSTED && _GLIBCXX_VERBOSE
+# include <iostream>
+#endif
 
 __attribute__ ((weak)) void
 handle_contract_violation (const std::experimental::contract_violation &violation)
 {
-  std::cerr << "default std::handle_contract_violation called: \n"
-    << " " << violation.file_name()
-    << " " << violation.line_number()
-    << " " << violation.function_name()
-    << " " << violation.comment()
-    << " " << violation.assertion_level()
-    << " " << violation.assertion_role()
-    << " " << (int)violation.continuation_mode()
+#if _GLIBCXX_HOSTED && _GLIBCXX_VERBOSE
+  const char* modes[]{ "never", "maybe" }; // Must match enumerators in header.
+  std::cerr << "contract violation in function " << violation.function_name()
+    << " at " << violation.file_name() << ':' << violation.line_number()
+    << ": " << violation.comment()
+    << "\n[level:" << violation.assertion_level()
+    << ", role:" << violation.assertion_role() << ", continuation mode:"
+    << modes[(int)violation.continuation_mode()] << ']'
     << std::endl;
+#endif
 }
-
