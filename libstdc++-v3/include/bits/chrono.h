@@ -927,8 +927,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
     /// time_point_cast
     template<typename _ToDur, typename _Clock, typename _Dur>
-      constexpr typename enable_if<__is_duration<_ToDur>::value,
-				   time_point<_Clock, _ToDur>>::type
+      constexpr
+      __enable_if_t<__is_duration<_ToDur>::value, time_point<_Clock, _ToDur>>
       time_point_cast(const time_point<_Clock, _Dur>& __t)
       {
 	typedef time_point<_Clock, _ToDur>			__time_point;
@@ -937,7 +937,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 #if __cplusplus > 201402L
     template<typename _ToDur, typename _Clock, typename _Dur>
-      constexpr
+      [[nodiscard]] constexpr
       enable_if_t<__is_duration<_ToDur>::value, time_point<_Clock, _ToDur>>
       floor(const time_point<_Clock, _Dur>& __tp)
       {
@@ -946,7 +946,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       }
 
     template<typename _ToDur, typename _Clock, typename _Dur>
-      constexpr
+      [[nodiscard]] constexpr
       enable_if_t<__is_duration<_ToDur>::value, time_point<_Clock, _ToDur>>
       ceil(const time_point<_Clock, _Dur>& __tp)
       {
@@ -955,7 +955,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       }
 
     template<typename _ToDur, typename _Clock, typename _Dur>
-      constexpr enable_if_t<
+      [[nodiscard]] constexpr
+      enable_if_t<
 	__and_<__is_duration<_ToDur>,
 	       __not_<treat_as_floating_point<typename _ToDur::rep>>>::value,
 	time_point<_Clock, _ToDur>>
