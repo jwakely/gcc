@@ -828,16 +828,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 #if __cplusplus > 201703L
     /// days
-    using days		= duration<_GLIBCXX_CHRONO_INT64_T, ratio<86400>>;
+    using days		= duration<__INT_LEAST32_TYPE__, ratio<86400>>;
 
     /// weeks
-    using weeks		= duration<_GLIBCXX_CHRONO_INT64_T, ratio<604800>>;
+    using weeks		= duration<__INT_LEAST32_TYPE__, ratio<604800>>;
 
     /// years
-    using years		= duration<_GLIBCXX_CHRONO_INT64_T, ratio<31556952>>;
+    using years		= duration<__INT_LEAST32_TYPE__, ratio<31556952>>;
 
     /// months
-    using months	= duration<_GLIBCXX_CHRONO_INT64_T, ratio<2629746>>;
+    using months	= duration<__INT_LEAST32_TYPE__, ratio<2629746>>;
 #endif // C++20
 
 #undef _GLIBCXX_CHRONO_INT64_T
