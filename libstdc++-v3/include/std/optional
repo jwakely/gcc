@@ -30,8 +30,6 @@
 #ifndef _GLIBCXX_OPTIONAL
 #define _GLIBCXX_OPTIONAL 1
 
-#pragma GCC system_header
-
 #if __cplusplus >= 201703L
 
 #include <type_traits>

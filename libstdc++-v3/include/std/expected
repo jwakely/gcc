@@ -29,8 +29,6 @@
 #ifndef _GLIBCXX_EXPECTED
 #define _GLIBCXX_EXPECTED
 
-#pragma GCC system_header
-
 #if __cplusplus > 202002L && __cpp_concepts >= 202002L
 
 #include <initializer_list>
