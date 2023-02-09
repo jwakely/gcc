@@ -680,6 +680,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _Tp>
     inline constexpr bool __is_optional_v<optional<_Tp>> = true;
 
+  template<typename _Tp, typename = const volatile _Tp>
+    constexpr bool __is_cv_bool = false;
+  template<typename _Tp>
+    constexpr bool __is_cv_bool<_Tp, const volatile bool> = true;
+
   template<typename _Tp, typename _Up>
     using __converts_from_optional =
       __or_<is_constructible<_Tp, const optional<_Up>&>,
@@ -697,6 +702,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    is_assignable<_Tp&, optional<_Up>&>,
 	    is_assignable<_Tp&, const optional<_Up>&&>,
 	    is_assignable<_Tp&, optional<_Up>&&>>;
+
+  template<typename _Tp, typename _Up>
+    using __converts_from_optional_x
+      = __conditional_t<__is_cv_bool<_Tp>, false_type,
+			__converts_from_optional<_Tp, _Up>>;
 
   /**
     * @brief Class template for optional values.
@@ -731,6 +741,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename... _Cond>
 	using _Requires = enable_if_t<__and_v<_Cond...>, bool>;
 
+      template<typename _Up>
+	using _No_bool_conv
+	  = bool_constant<!__is_cv_bool<_Tp>
+			    || !__is_optional_v<__remove_cvref_t<_Up>>>;
+
     public:
       using value_type = _Tp;
 
@@ -741,7 +756,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       // Converting constructors for engaged optionals.
       template<typename _Up = _Tp,
 	       _Requires<__not_self<_Up>, __not_tag<_Up>,
-			 is_constructible<_Tp, _Up>,
+			 is_constructible<_Tp, _Up>, _No_bool_conv<_Up>,
 			 is_convertible<_Up, _Tp>> = true>
 	constexpr
 	optional(_Up&& __t)
@@ -750,7 +765,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
       template<typename _Up = _Tp,
 	       _Requires<__not_self<_Up>, __not_tag<_Up>,
-			 is_constructible<_Tp, _Up>,
+			 is_constructible<_Tp, _Up>, _No_bool_conv<_Up>,
 			 __not_<is_convertible<_Up, _Tp>>> = false>
 	explicit constexpr
 	optional(_Up&& __t)
@@ -761,7 +776,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	       _Requires<__not_<is_same<_Tp, _Up>>,
 			 is_constructible<_Tp, const _Up&>,
 			 is_convertible<const _Up&, _Tp>,
-			 __not_<__converts_from_optional<_Tp, _Up>>> = true>
+			 __not_<__converts_from_optional_x<_Tp, _Up>>> = true>
 	constexpr
 	optional(const optional<_Up>& __t)
 	noexcept(is_nothrow_constructible_v<_Tp, const _Up&>)
@@ -774,7 +789,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	       _Requires<__not_<is_same<_Tp, _Up>>,
 			 is_constructible<_Tp, const _Up&>,
 			 __not_<is_convertible<const _Up&, _Tp>>,
-			 __not_<__converts_from_optional<_Tp, _Up>>> = false>
+			 __not_<__converts_from_optional_x<_Tp, _Up>>> = false>
 	explicit constexpr
 	optional(const optional<_Up>& __t)
 	noexcept(is_nothrow_constructible_v<_Tp, const _Up&>)
@@ -787,7 +802,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	       _Requires<__not_<is_same<_Tp, _Up>>,
 			 is_constructible<_Tp, _Up>,
 			 is_convertible<_Up, _Tp>,
-			 __not_<__converts_from_optional<_Tp, _Up>>> = true>
+			 __not_<__converts_from_optional_x<_Tp, _Up>>> = true>
 	constexpr
 	optional(optional<_Up>&& __t)
 	noexcept(is_nothrow_constructible_v<_Tp, _Up>)
@@ -800,7 +815,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	       _Requires<__not_<is_same<_Tp, _Up>>,
 			 is_constructible<_Tp, _Up>,
 			 __not_<is_convertible<_Up, _Tp>>,
-			 __not_<__converts_from_optional<_Tp, _Up>>> = false>
+			 __not_<__converts_from_optional_x<_Tp, _Up>>> = false>
 	explicit constexpr
 	optional(optional<_Up>&& __t)
 	noexcept(is_nothrow_constructible_v<_Tp, _Up>)

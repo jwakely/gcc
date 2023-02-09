@@ -406,7 +406,8 @@ namespace __expected
       template<typename _Up, typename _Gr>
 	requires is_constructible_v<_Tp, const _Up&>
 	      && is_constructible_v<_Er, const _Gr&>
-	      && (!__cons_from_expected<_Up, _Gr>)
+	      && (!__cons_from_expected<_Up, _Gr>
+		    || is_same_v<const _Tp, const bool>)
 	constexpr explicit(__explicit_conv<const _Up&, const _Gr&>)
 	expected(const expected<_Up, _Gr>& __x)
 	noexcept(__and_v<is_nothrow_constructible<_Tp, const _Up&>,
@@ -422,7 +423,8 @@ namespace __expected
       template<typename _Up, typename _Gr>
 	requires is_constructible_v<_Tp, _Up>
 	      && is_constructible_v<_Er, _Gr>
-	      && (!__cons_from_expected<_Up, _Gr>)
+	      && (!__cons_from_expected<_Up, _Gr>
+		    || is_same_v<const _Tp, const bool>)
 	constexpr explicit(__explicit_conv<_Up, _Gr>)
 	expected(expected<_Up, _Gr>&& __x)
 	noexcept(__and_v<is_nothrow_constructible<_Tp, _Up>,
@@ -442,6 +444,8 @@ namespace __expected
 	  && (!is_same_v<remove_cvref_t<_Up>, in_place_t>)
 	  && (!__expected::__is_unexpected<remove_cvref_t<_Up>>)
 	  && is_constructible_v<_Tp, _Up>
+	  && (!is_same_v<bool, remove_cv_t<_Tp>>
+		  || !__expected::__is_expected<remove_cvref_t<_Up>>)
 	constexpr explicit(!is_convertible_v<_Up, _Tp>)
 	expected(_Up&& __v)
 	noexcept(is_nothrow_constructible_v<_Tp, _Up>)
