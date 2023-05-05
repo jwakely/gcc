@@ -86,8 +86,14 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
   template<typename _CharT, typename _Traits, typename _Alloc>
     class basic_string
     {
+#if __cplusplus >= 202002L
+      static_assert(is_same_v<_CharT, typename _Traits::char_type>);
+      static_assert(is_same_v<_CharT, typename _Alloc::value_type>);
+      using _Char_alloc_type = _Alloc;
+#else
       typedef typename __gnu_cxx::__alloc_traits<_Alloc>::template
 	rebind<_CharT>::other _Char_alloc_type;
+#endif
 
 #if __cpp_lib_constexpr_string < 201907L
       typedef __gnu_cxx::__alloc_traits<_Char_alloc_type> _Alloc_traits;
