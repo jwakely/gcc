@@ -4577,6 +4577,63 @@ namespace __format
     { };
 #endif // C++23 formatting ranges
 
+#if __glibcxx_print >= 202403L
+  template<typename>
+    constexpr bool enable_nonlocking_formatter_optimization = false;
+
+  template<__format::__char _CharT>
+    constexpr bool enable_nonlocking_formatter_optimization<_CharT> = true;
+  template<__format::__char _CharT>
+    constexpr bool enable_nonlocking_formatter_optimization<_CharT*> = true;
+  template<__format::__char _CharT>
+    constexpr bool
+    enable_nonlocking_formatter_optimization<const _CharT*> = true;
+  template<__format::__char _CharT, size_t _Nm>
+    constexpr bool enable_nonlocking_formatter_optimization<_CharT[_Nm]> = true;
+  template<typename _Tr, typename _Alloc>
+    constexpr bool
+    enable_nonlocking_formatter_optimization<basic_string<char, _Tr, _Alloc>>
+      = true;
+  template<typename _Tr>
+    constexpr bool
+    enable_nonlocking_formatter_optimization<basic_string_view<char, _Tr>>
+      = true;
+#ifdef _GLIBCXX_USE_WCHAR_T
+  template<typename _Tr, typename _Alloc>
+    constexpr bool
+    enable_nonlocking_formatter_optimization<basic_string<wchar_t, _Tr, _Alloc>>
+      = true;
+  template<typename _Tr>
+    constexpr bool
+    enable_nonlocking_formatter_optimization<basic_string_view<wchar_t, _Tr>>
+      = true;
+#endif
+  template<integral _Tp>
+    requires (!__is_one_of<_Tp, char, wchar_t, char16_t, char32_t>::value)
+    constexpr bool
+    enable_nonlocking_formatter_optimization<_Tp> = true;
+#if defined __SIZEOF_INT128__ && defined __STRICT_ANSI__
+  template<integral _Tp>
+    requires (__is_one_of<_Tp, __int128, unsigned __int128>::value)
+    constexpr bool
+    enable_nonlocking_formatter_optimization<_Tp> = true;
+#endif
+#if defined __glibcxx_to_chars
+  template<__format::__formattable_float _Tp>
+    constexpr bool
+    enable_nonlocking_formatter_optimization<_Tp> = true;
+#endif
+  template<>
+    constexpr bool
+    enable_nonlocking_formatter_optimization<const void*> = true;
+  template<>
+    constexpr bool
+    enable_nonlocking_formatter_optimization<void*> = true;
+  template<>
+    constexpr bool
+    enable_nonlocking_formatter_optimization<nullptr_t> = true;
+#endif
+
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace std
 #endif // __cpp_lib_format
