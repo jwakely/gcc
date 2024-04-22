@@ -98,7 +98,9 @@ hash (const char *str, unsigned int len)
   return hval + asso_values[(unsigned char)str[len - 1]];
 }
 
-#ifdef __GNUC__
+#ifdef __GNUC_STDC_INLINE__
+extern inline
+#elif defined __GNUC__
 __inline
 #endif
 const struct java_keyword *
