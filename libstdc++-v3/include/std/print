@@ -161,8 +161,9 @@ namespace __format
 	  _M_file._M_bump(__s.size());
 	  if (_M_add_newline)
 	    ::putc_unlocked('\n', _M_file._M_file);
-	  else if (_M_file._M_line_buffered()
-		     && __builtin_memchr(__s.data(), '\n', __s.size()))
+	  else if (_M_file._M_line_buffered() && __s.size()
+		     && (__s.back() == '\n'
+			   || __builtin_memchr(__s.data(), '\n', __s.size())))
 	    _M_file._M_flush();
 	}
     }
